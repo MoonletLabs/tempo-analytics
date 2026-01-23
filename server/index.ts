@@ -2,7 +2,7 @@ import cors from 'cors'
 import express from 'express'
 import path from 'node:path'
 
-import { buildDashboard, getComplianceEvents, getFeePayments, getMemoTransfers, normalizeMemoParam, getSponsorshipData } from './analytics'
+import { buildDashboard, getComplianceEvents, getFeePayments, getMemoTransfers, normalizeMemoParam } from './analytics'
 import { env } from './env'
 import { publicClient } from './rpc'
 
@@ -33,7 +33,6 @@ app.get('/api/health', async (_req, res) => {
     res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) })
   }
 })
-
 
 app.get('/api/dashboard', async (_req, res) => {
   try {
@@ -69,18 +68,6 @@ app.get('/api/compliance', async (_req, res) => {
   try {
     const data = await getComplianceEvents(DASHBOARD_WINDOW)
     res.json({ windowSeconds: DASHBOARD_WINDOW, registry: env.contracts.tip403Registry, events: data })
-  } catch (err) {
-    res.status(500).json({ error: err instanceof Error ? err.message : String(err) })
-  }
-})
-
-// Separate endpoint for sponsorship data (slow - requires individual tx lookups)
-app.get('/api/sponsorship', async (_req, res) => {
-  try {
-    const start = Date.now()
-    const data = await getSponsorshipData(DASHBOARD_WINDOW)
-    console.log(`[api] Sponsorship data built in ${Date.now() - start}ms`)
-    res.json(data)
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : String(err) })
   }

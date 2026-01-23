@@ -114,14 +114,6 @@ type DashboardResponse = {
   feeAmm: FeeAmmSummary
 }
 
-type SponsorshipData = {
-  totalFeePayments: number
-  sponsoredCount: number
-  selfPaidCount: number
-  unknownCount: number
-  sponsorshipRate: number
-}
-
 // Utility functions
 function pickBucketSizeSeconds(windowSeconds: number): number {
   const targetPoints = 120
@@ -139,16 +131,6 @@ function formatBucketLabel(windowSeconds: number, tsSeconds: number): string {
   if (windowSeconds <= 24 * 3600) return iso.slice(11, 13) + ':00'
   if (windowSeconds <= 14 * 24 * 3600) return iso.slice(5, 10) + ' ' + iso.slice(11, 13) + ':00'
   return iso.slice(5, 10)
-}
-
-function formatWindowLabel(windowSeconds?: number) {
-  const seconds = Number.isFinite(windowSeconds) ? (windowSeconds as number) : 24 * 3600
-  if (seconds <= 24 * 3600) {
-    const hours = Math.max(1, Math.round(seconds / 3600))
-    return `Last ${hours}h`
-  }
-  const days = Math.max(1, Math.round(seconds / (24 * 3600)))
-  return `Last ${days}d`
 }
 
 function buildTokenBarData(map: Record<string, string>) {
@@ -383,8 +365,6 @@ const chartColors = {
   danger: '#ef4444',
 }
 
-const tooltipCursor = { fill: 'rgba(30, 41, 59, 0.35)' }
-
 // Custom Tooltip for recharts
 function CustomTooltip({ active, payload, label }: { active?: boolean; payload?: Array<{ name: string; value: number; color?: string }>; label?: string }) {
   if (!active || !payload?.length) return null
@@ -482,12 +462,8 @@ export default function App() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  // Sponsorship data loaded separately (slower endpoint)
-  const [sponsorshipData, setSponsorshipData] = useState<SponsorshipData | null>(null)
-  const [sponsorshipLoading, setSponsorshipLoading] = useState(true)
-
   async function load() {
-        setLoading(true)
+    setLoading(true)
     setError(null)
     try {
       const res = await fetch('/api/dashboard')
@@ -502,23 +478,8 @@ export default function App() {
     }
   }
 
-  async function loadSponsorship() {
-    setSponsorshipLoading(true)
-    try {
-      const res = await fetch('/api/sponsorship')
-      if (!res.ok) throw new Error(`API error: ${res.status} ${res.statusText}`)
-      const json = (await res.json()) as SponsorshipData
-      setSponsorshipData(json)
-    } catch (e) {
-      console.error('Failed to load sponsorship data:', e)
-    } finally {
-      setSponsorshipLoading(false)
-    }
-  }
-
   useEffect(() => {
     void load()
-    void loadSponsorship() // Load sponsorship data in parallel
   }, [])
 
   async function runMemoSearch(memoOverride?: string) {
@@ -548,9 +509,9 @@ export default function App() {
   const feesSeries = data ? bucketSumByToken(data.fees, data.windowSeconds) : []
   const complianceSeries = data ? bucketComplianceByType(data.compliance, data.windowSeconds) : []
 
-  // Use sponsorship data from separate API endpoint
-  const sponsored = sponsorshipData?.sponsoredCount ?? 0
-  const selfPaid = sponsorshipData?.selfPaidCount ?? 0
+  const sponsorKnown = data ? data.fees.filter((f) => typeof f.sponsored === 'boolean').length : 0
+  const sponsored = data ? data.fees.filter((f) => f.sponsored === true).length : 0
+  const selfPaid = Math.max(0, sponsorKnown - sponsored)
 
   const feeAmmLiquidity = data ? buildTokenBarData(data.feeAmm.totalLiquidityByToken) : []
 
@@ -591,7 +552,7 @@ export default function App() {
   } : null
 
   return (
-    <div className="flex min-h-screen flex-col">
+    <div className="flex min-h-screen flex-col font-sans antialiased">
       <Header activeTab={activeTab} onTabChange={setActiveTab} />
 
       <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-8 sm:px-6 lg:px-8">
@@ -601,7 +562,7 @@ export default function App() {
             Tempo Analytics Dashboard
           </h1>
           <p className="mt-1 text-slate-600 dark:text-slate-400">
-            Real-time analytics for Tempo Network · {formatWindowLabel(data?.windowSeconds)}
+            Real-time analytics for Tempo Network · Last hour
           </p>
         </div>
 
@@ -793,25 +754,12 @@ export default function App() {
                 deltaType={deltas?.uniqueFeePayers?.startsWith('+') ? 'positive' : 'neutral'}
                 icon={Users}
               />
-              {sponsorshipLoading ? (
-                <Card className="bg-slate-800/50 border-slate-700/50">
-                  <CardContent className="p-6">
-                    <div className="flex items-center justify-between">
-                      <div className="space-y-2">
-                        <Skeleton className="h-4 w-24" />
-                        <Skeleton className="h-8 w-16" />
-                      </div>
-                      <Skeleton className="h-10 w-10 rounded-lg" />
-                    </div>
-                  </CardContent>
-                </Card>
-              ) : (
-                <StatCard
-                  title="Sponsored Fees"
-                  value={sponsorshipData ? `${(sponsorshipData.sponsorshipRate * 100).toFixed(1)}%` : 'N/A'}
-                  icon={Wallet}
-                />
-              )}
+              <StatCard
+                title="Sponsored Fees"
+                value={`${(data.aggregates.sponsoredFeePaymentRate * 100).toFixed(1)}%`}
+                delta={deltas?.sponsoredRate}
+                icon={Wallet}
+              />
               <StatCard
                 title="Compliance Events"
                 value={data.aggregates.complianceEventCount.toLocaleString()}
@@ -858,19 +806,11 @@ export default function App() {
                 </tr>
                 <tr>
                         <td className="font-medium">Sponsored fee transfers</td>
+                        <td className="font-mono">{data.aggregates.sponsoredFeePayments.toLocaleString()}</td>
                         <td className="font-mono">
-                          {sponsorshipLoading ? (
-                            <Skeleton className="h-4 w-12 inline-block" />
-                          ) : sponsorshipData ? (
-                            sponsorshipData.sponsoredCount.toLocaleString()
-                          ) : 'N/A'}
-                        </td>
-                        <td className="font-mono">
-                          {sponsorshipLoading ? (
-                            <Skeleton className="h-4 w-12 inline-block" />
-                          ) : sponsorshipData ? (
-                            `${(sponsorshipData.sponsorshipRate * 100).toFixed(1)}%`
-                          ) : 'N/A'}
+                    {data.aggregates.memoTransferCount > 0
+                      ? ((data.aggregates.sponsoredFeePayments / data.aggregates.memoTransferCount) * 100).toFixed(1)
+                      : '0'}%
                   </td>
                 </tr>
               </tbody>
@@ -895,7 +835,7 @@ export default function App() {
                       <CartesianGrid strokeDasharray="3 3" className="stroke-slate-200 dark:stroke-slate-700" />
                       <XAxis dataKey="address" tick={{ fontSize: 12 }} className="fill-slate-500 dark:fill-slate-400" />
                       <YAxis tick={{ fontSize: 12 }} className="fill-slate-500 dark:fill-slate-400" />
-                      <Tooltip content={<CustomTooltip />} cursor={tooltipCursor} />
+                      <Tooltip content={<CustomTooltip />} />
                       <Bar dataKey="volume" fill={chartColors.quaternary} radius={[6, 6, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
@@ -916,7 +856,7 @@ export default function App() {
                       <CartesianGrid strokeDasharray="3 3" className="stroke-slate-200 dark:stroke-slate-700" />
                       <XAxis dataKey="address" tick={{ fontSize: 12 }} className="fill-slate-500 dark:fill-slate-400" />
                       <YAxis tick={{ fontSize: 12 }} className="fill-slate-500 dark:fill-slate-400" />
-                      <Tooltip content={<CustomTooltip />} cursor={tooltipCursor} />
+                      <Tooltip content={<CustomTooltip />} />
                       <Bar dataKey="volume" fill={chartColors.primary} radius={[6, 6, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
@@ -927,7 +867,7 @@ export default function App() {
                 <div className="h-64">
                 <ResponsiveContainer>
                   <PieChart>
-                      <Tooltip content={<CustomTooltip />} cursor={tooltipCursor} />
+                      <Tooltip content={<CustomTooltip />} />
                     <Pie
                       data={tokenDominance}
                       dataKey="value"
@@ -975,7 +915,7 @@ export default function App() {
                       tick={(p) => <TokenAxisTick {...(p as any)} tokenBySymbol={tokenBySymbol} />}
                     />
                       <YAxis tick={{ fontSize: 12 }} className="fill-slate-500 dark:fill-slate-400" />
-                      <Tooltip content={<CustomTooltip />} cursor={tooltipCursor} />
+                      <Tooltip content={<CustomTooltip />} />
                     <Legend />
                       <Bar dataKey="demand" fill={chartColors.danger} radius={[6, 6, 0, 0]} />
                       <Bar dataKey="reserve" fill={chartColors.tertiary} radius={[6, 6, 0, 0]} />
@@ -1011,7 +951,7 @@ export default function App() {
                       <CartesianGrid strokeDasharray="3 3" className="stroke-slate-200 dark:stroke-slate-700" />
                       <XAxis dataKey="t" tick={{ fontSize: 12 }} className="fill-slate-500 dark:fill-slate-400" />
                       <YAxis tick={{ fontSize: 12 }} className="fill-slate-500 dark:fill-slate-400" />
-                      <Tooltip content={<CustomTooltip />} cursor={tooltipCursor} />
+                      <Tooltip content={<CustomTooltip />} />
                     <Legend />
                       <Line type="monotone" dataKey="memos" stroke={chartColors.quaternary} strokeWidth={2} dot={false} />
                       <Line type="monotone" dataKey="fees" stroke={chartColors.primary} strokeWidth={2} dot={false} />
@@ -1025,7 +965,7 @@ export default function App() {
                 <div className="h-64">
                 <ResponsiveContainer>
                   <PieChart>
-                      <Tooltip content={<CustomTooltip />} cursor={tooltipCursor} />
+                      <Tooltip content={<CustomTooltip />} />
                     <Pie
                       data={buildTokenBarData(data.aggregates.feePaidByToken)}
                       dataKey="value"
@@ -1054,7 +994,7 @@ export default function App() {
                       tick={(p) => <TokenAxisTick {...(p as any)} tokenBySymbol={tokenBySymbol} />}
                     />
                       <YAxis tick={{ fontSize: 12 }} className="fill-slate-500 dark:fill-slate-400" />
-                      <Tooltip content={<CustomTooltip />} cursor={tooltipCursor} />
+                      <Tooltip content={<CustomTooltip />} />
                       <Bar dataKey="value" fill={chartColors.quaternary} radius={[6, 6, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
@@ -1076,7 +1016,7 @@ export default function App() {
                       tick={(p) => <TokenAxisTick {...(p as any)} tokenBySymbol={tokenBySymbol} />}
                     />
                       <YAxis tick={{ fontSize: 12 }} className="fill-slate-500 dark:fill-slate-400" />
-                      <Tooltip content={<CustomTooltip />} cursor={tooltipCursor} />
+                      <Tooltip content={<CustomTooltip />} />
                       <Bar dataKey="amount" fill={chartColors.primary} radius={[6, 6, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
@@ -1098,7 +1038,7 @@ export default function App() {
                           <CartesianGrid strokeDasharray="3 3" className="stroke-slate-200 dark:stroke-slate-700" />
                           <XAxis dataKey="memo" tick={{ fontSize: 12 }} className="fill-slate-500 dark:fill-slate-400" />
                           <YAxis tick={{ fontSize: 12 }} className="fill-slate-500 dark:fill-slate-400" />
-                          <Tooltip content={<CustomTooltip />} cursor={tooltipCursor} />
+                          <Tooltip content={<CustomTooltip />} />
                           <Bar dataKey="count" fill={chartColors.quaternary} radius={[6, 6, 0, 0]} />
                       </BarChart>
                     </ResponsiveContainer>
@@ -1112,7 +1052,7 @@ export default function App() {
                           <CartesianGrid strokeDasharray="3 3" className="stroke-slate-200 dark:stroke-slate-700" />
                           <XAxis dataKey="bucket" tick={{ fontSize: 12 }} className="fill-slate-500 dark:fill-slate-400" />
                           <YAxis tick={{ fontSize: 12 }} className="fill-slate-500 dark:fill-slate-400" />
-                          <Tooltip content={<CustomTooltip />} cursor={tooltipCursor} />
+                          <Tooltip content={<CustomTooltip />} />
                           <Bar dataKey="memos" fill={chartColors.secondary} radius={[6, 6, 0, 0]} />
                       </BarChart>
                     </ResponsiveContainer>
@@ -1126,7 +1066,7 @@ export default function App() {
                           <CartesianGrid strokeDasharray="3 3" className="stroke-slate-200 dark:stroke-slate-700" />
                           <XAxis dataKey="rank" tick={{ fontSize: 12 }} className="fill-slate-500 dark:fill-slate-400" />
                           <YAxis tick={{ fontSize: 12 }} domain={[0, 100]} className="fill-slate-500 dark:fill-slate-400" />
-                          <Tooltip content={<CustomTooltip />} cursor={tooltipCursor} />
+                          <Tooltip content={<CustomTooltip />} />
                           <Line type="monotone" dataKey="cumulativeShare" stroke={chartColors.tertiary} strokeWidth={2} dot={false} />
                       </LineChart>
                     </ResponsiveContainer>
@@ -1149,7 +1089,7 @@ export default function App() {
                           <CartesianGrid strokeDasharray="3 3" className="stroke-slate-200 dark:stroke-slate-700" />
                           <XAxis dataKey="payer" tick={{ fontSize: 12 }} className="fill-slate-500 dark:fill-slate-400" />
                           <YAxis tick={{ fontSize: 12 }} className="fill-slate-500 dark:fill-slate-400" />
-                          <Tooltip content={<CustomTooltip />} cursor={tooltipCursor} />
+                          <Tooltip content={<CustomTooltip />} />
                           <Bar dataKey="total" fill={chartColors.primary} radius={[6, 6, 0, 0]} />
                       </BarChart>
                     </ResponsiveContainer>
@@ -1163,7 +1103,7 @@ export default function App() {
                           <CartesianGrid strokeDasharray="3 3" className="stroke-slate-200 dark:stroke-slate-700" />
                           <XAxis dataKey="t" tick={{ fontSize: 12 }} className="fill-slate-500 dark:fill-slate-400" />
                           <YAxis tick={{ fontSize: 12 }} className="fill-slate-500 dark:fill-slate-400" />
-                          <Tooltip content={<CustomTooltip />} cursor={tooltipCursor} />
+                          <Tooltip content={<CustomTooltip />} />
                     <Legend content={(p) => <TokenLegend tokenBySymbol={tokenBySymbol} payload={p.payload as any} />} />
                     {Object.keys(data.aggregates.feePaidByToken).map((sym) => (
                       <Area
@@ -1184,40 +1124,27 @@ export default function App() {
 
                   <ChartCard title="Sponsorship Split" description="Fee payer != tx sender">
                     <div className="h-64">
-                      {sponsorshipLoading ? (
-                        <div className="flex h-full items-center justify-center">
-                          <div className="text-center">
-                            <Skeleton className="h-32 w-32 mx-auto rounded-full mb-4" />
-                            <Skeleton className="h-4 w-24 mx-auto" />
-                          </div>
-                        </div>
-                      ) : sponsored === 0 && selfPaid === 0 ? (
-                        <div className="flex h-full items-center justify-center text-slate-500 dark:text-slate-400">
-                          No sponsorship data available
-                        </div>
-                      ) : (
-                        <ResponsiveContainer>
-                          <PieChart>
-                            <Tooltip content={<CustomTooltip />} cursor={tooltipCursor} />
-                            <Pie
-                              data={[
-                                { name: 'Sponsored', value: sponsored },
-                                { name: 'Self-paid', value: selfPaid },
-                              ]}
-                              dataKey="value"
-                              nameKey="name"
-                              innerRadius={55}
-                              outerRadius={95}
-                              paddingAngle={2}
-                            >
-                              <Cell fill={chartColors.primary} />
-                              <Cell fill={chartColors.secondary} />
-                            </Pie>
-                            <Legend />
-                          </PieChart>
-                        </ResponsiveContainer>
-                      )}
-                    </div>
+                    <ResponsiveContainer>
+                  <PieChart>
+                          <Tooltip content={<CustomTooltip />} />
+                    <Pie
+                      data={[
+                        { name: 'Sponsored', value: sponsored },
+                        { name: 'Self-paid', value: selfPaid },
+                      ]}
+                          dataKey="value"
+                          nameKey="name"
+                          innerRadius={55}
+                          outerRadius={95}
+                          paddingAngle={2}
+                          >
+                            <Cell fill={chartColors.primary} />
+                            <Cell fill={chartColors.secondary} />
+                          </Pie>
+                    <Legend />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
                   </ChartCard>
 
                   <ChartCard title="Compliance Events Over Time" description="TIP-403 registry activity">
@@ -1227,7 +1154,7 @@ export default function App() {
                           <CartesianGrid strokeDasharray="3 3" className="stroke-slate-200 dark:stroke-slate-700" />
                           <XAxis dataKey="t" tick={{ fontSize: 12 }} className="fill-slate-500 dark:fill-slate-400" />
                           <YAxis tick={{ fontSize: 12 }} className="fill-slate-500 dark:fill-slate-400" />
-                          <Tooltip content={<CustomTooltip />} cursor={tooltipCursor} />
+                          <Tooltip content={<CustomTooltip />} />
                         <Legend />
                           <Bar dataKey="WhitelistUpdated" stackId="1" fill={chartColors.tertiary} />
                           <Bar dataKey="BlacklistUpdated" stackId="1" fill={chartColors.danger} />
@@ -1240,48 +1167,36 @@ export default function App() {
 
                   <ChartCard title="Top Compliance Updaters" description="Who changes policies most">
                     <div className="h-64">
-                      {complianceStats.topUpdaters.length === 0 ? (
-                        <div className="flex h-full items-center justify-center text-slate-500 dark:text-slate-400">
-                          No compliance events in this period
-                        </div>
-                      ) : (
-                        <ResponsiveContainer>
-                          <BarChart
-                            data={complianceStats.topUpdaters.map((u) => ({
-                              updater: short(u.updater),
-                              updaterFull: u.updater,
-                              count: u.count,
-                            }))}
-                          >
-                            <CartesianGrid strokeDasharray="3 3" className="stroke-slate-200 dark:stroke-slate-700" />
-                            <XAxis dataKey="updater" tick={{ fontSize: 12 }} className="fill-slate-500 dark:fill-slate-400" />
-                            <YAxis tick={{ fontSize: 12 }} className="fill-slate-500 dark:fill-slate-400" />
-                            <Tooltip content={<CustomTooltip />} cursor={tooltipCursor} />
-                            <Bar dataKey="count" fill={chartColors.secondary} radius={[6, 6, 0, 0]} />
-                          </BarChart>
-                        </ResponsiveContainer>
-                      )}
-                    </div>
+                    <ResponsiveContainer>
+                      <BarChart
+                        data={complianceStats.topUpdaters.map((u) => ({
+                          updater: short(u.updater),
+                          updaterFull: u.updater,
+                          count: u.count,
+                        }))}
+                      >
+                          <CartesianGrid strokeDasharray="3 3" className="stroke-slate-200 dark:stroke-slate-700" />
+                          <XAxis dataKey="updater" tick={{ fontSize: 12 }} className="fill-slate-500 dark:fill-slate-400" />
+                          <YAxis tick={{ fontSize: 12 }} className="fill-slate-500 dark:fill-slate-400" />
+                          <Tooltip content={<CustomTooltip />} />
+                          <Bar dataKey="count" fill={chartColors.secondary} radius={[6, 6, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
                   </ChartCard>
 
                   <ChartCard title="Most Changed Policies" description="Policy ID churn">
                     <div className="h-64">
-                      {complianceStats.topPolicies.length === 0 ? (
-                        <div className="flex h-full items-center justify-center text-slate-500 dark:text-slate-400">
-                          No policy changes in this period
-                        </div>
-                      ) : (
-                        <ResponsiveContainer>
-                          <BarChart data={complianceStats.topPolicies}>
-                            <CartesianGrid strokeDasharray="3 3" className="stroke-slate-200 dark:stroke-slate-700" />
-                            <XAxis dataKey="policyId" tick={{ fontSize: 12 }} className="fill-slate-500 dark:fill-slate-400" />
-                            <YAxis tick={{ fontSize: 12 }} className="fill-slate-500 dark:fill-slate-400" />
-                            <Tooltip content={<CustomTooltip />} cursor={tooltipCursor} />
-                            <Bar dataKey="changes" fill={chartColors.danger} radius={[6, 6, 0, 0]} />
-                          </BarChart>
-                        </ResponsiveContainer>
-                      )}
-                    </div>
+                    <ResponsiveContainer>
+                      <BarChart data={complianceStats.topPolicies}>
+                          <CartesianGrid strokeDasharray="3 3" className="stroke-slate-200 dark:stroke-slate-700" />
+                          <XAxis dataKey="policyId" tick={{ fontSize: 12 }} className="fill-slate-500 dark:fill-slate-400" />
+                          <YAxis tick={{ fontSize: 12 }} className="fill-slate-500 dark:fill-slate-400" />
+                          <Tooltip content={<CustomTooltip />} />
+                          <Bar dataKey="changes" fill={chartColors.danger} radius={[6, 6, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
                   </ChartCard>
 
                   <ChartCard title="Fee AMM Total Liquidity" description="Sum of pool reserves by token">
@@ -1294,7 +1209,7 @@ export default function App() {
                           tick={(p) => <TokenAxisTick {...(p as any)} tokenBySymbol={tokenBySymbol} />}
                         />
                           <YAxis tick={{ fontSize: 12 }} className="fill-slate-500 dark:fill-slate-400" />
-                          <Tooltip content={<CustomTooltip />} cursor={tooltipCursor} />
+                          <Tooltip content={<CustomTooltip />} />
                           <Bar dataKey="value" fill={chartColors.tertiary} radius={[6, 6, 0, 0]} />
                       </BarChart>
                     </ResponsiveContainer>

@@ -10,6 +10,7 @@ FROM deps AS build
 
 COPY tsconfig*.json ./
 COPY vite.config.ts eslint.config.js index.html ./
+COPY postcss.config.js tailwind.config.js ./
 COPY src ./src
 COPY server ./server
 COPY public ./public
