@@ -63,33 +63,40 @@ export async function getLogsChunked<TLog extends Log>({
   const results: TLog[] = []
 
   const minChunk = 200n
-  let chunk = 5000n
-  let start = fromBlock
+  const chunk = 5000n
 
-  while (start <= toBlock) {
+  const ranges: Array<{ start: bigint; end: bigint }> = []
+  for (let start = fromBlock; start <= toBlock; start += chunk) {
     const end = start + chunk - 1n > toBlock ? toBlock : start + chunk - 1n
+    ranges.push({ start, end })
+  }
 
-    // eslint-disable-next-line no-await-in-loop
-    const part = await limit(async () => {
+  const fetchRange = async (start: bigint, end: bigint): Promise<TLog[]> =>
+    limit(async () => {
       try {
         return await withRpcRetry(() => fetch({ fromBlock: start, toBlock: end }))
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
         const retry = parseRetryRange(msg)
         if (retry) {
-          return await withRpcRetry(() => fetch({ fromBlock: retry.from, toBlock: retry.to }))
+          return await fetchRange(retry.from, retry.to)
         }
-        if (msg.toLowerCase().includes('query exceeds max results') && chunk > minChunk) {
-          chunk = chunk / 2n
-          if (chunk < minChunk) chunk = minChunk
-          return await withRpcRetry(() => fetch({ fromBlock: start, toBlock: end }))
+        if (msg.toLowerCase().includes('query exceeds max results')) {
+          const size = end - start + 1n
+          if (size <= minChunk) throw err
+          const mid = start + size / 2n
+          const [left, right] = await Promise.all([
+            fetchRange(start, mid),
+            fetchRange(mid + 1n, end),
+          ])
+          return [...left, ...right]
         }
         throw err
       }
     })
-    results.push(...part)
-    start = end + 1n
-  }
+
+  const parts = await Promise.all(ranges.map((range) => fetchRange(range.start, range.end)))
+  for (const part of parts) results.push(...part)
 
   // Deduplicate defensively (txHash + logIndex)
   const seen = new Set<string>()

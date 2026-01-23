@@ -35,6 +35,7 @@ TEMPO_RPC_URL=http://127.0.0.1:8545 docker compose up --build -d
 
 # Scan more blocks (only recommended on your own RPC)
 TEMPO_MAX_SCAN_BLOCKS=100000 docker compose up --build -d
+
 ```
 
 ## Nginx + Cloudflare notes

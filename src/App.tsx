@@ -16,9 +16,30 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
+import {
+  Activity,
+  Coins,
+  FileText,
+  Hash,
+  Send,
+  Shield,
+  Users,
+  Wallet,
+} from 'lucide-react'
 
-import './App.css'
+import { formatTs, short, toNumber, formatDelta, formatDeltaPct, tokenIconUrl } from '@/lib/utils'
+import { Header } from '@/components/layout/header'
+import { Footer } from '@/components/layout/footer'
+import { StatCard } from '@/components/stat-card'
+import { ChartCard } from '@/components/chart-card'
+import { TokenBadge } from '@/components/token-badge'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Badge } from '@/components/ui/badge'
+import { Skeleton } from '@/components/ui/skeleton'
 
+// Types
 type Token = {
   address: string
   symbol: string
@@ -93,130 +114,16 @@ type DashboardResponse = {
   feeAmm: FeeAmmSummary
 }
 
-function formatTs(ts: number) {
-  if (!ts) return '-'
-  return new Date(ts * 1000).toISOString().replace('T', ' ').slice(0, 19)
+type SponsorshipData = {
+  totalFeePayments: number
+  sponsoredCount: number
+  selfPaidCount: number
+  unknownCount: number
+  sponsorshipRate: number
 }
 
-function short(s: string) {
-  if (!s) return ''
-  return `${s.slice(0, 6)}…${s.slice(-4)}`
-}
-
-function tokenIconUrl(token: { address: string; logoURI?: string }): string {
-  // Local icons are served from /public/token-icons
-  return `/token-icons/${token.address.toLowerCase()}.svg`
-}
-
-function TokenBadge({ token }: { token: { address: string; symbol: string; logoURI?: string } }) {
-  return (
-    <span className="tokenBadge">
-      <img
-        className="tokenIcon"
-        src={tokenIconUrl(token)}
-        alt=""
-        onError={(e) => {
-          if (!token.logoURI) return
-          const img = e.currentTarget
-          if (img.dataset.fallback === '1') return
-          img.dataset.fallback = '1'
-          img.src = token.logoURI
-        }}
-      />
-      <span aria-label={token.symbol}>{token.symbol}</span>
-    </span>
-  )
-}
-
-function TokenAxisTick({
-  x,
-  y,
-  payload,
-  tokenBySymbol,
-}: {
-  x?: number
-  y?: number
-  payload?: { value?: unknown }
-  tokenBySymbol: Map<string, { address: string; symbol: string; logoURI?: string }>
-}) {
-  const sym = String(payload?.value ?? '')
-  const token = tokenBySymbol.get(sym)
-  const px = Number.isFinite(x) ? (x as number) : 0
-  const py = Number.isFinite(y) ? (y as number) : 0
-
-  if (!token) {
-    return (
-      <text x={px} y={py} dy={14} textAnchor="middle" fill="rgba(255,255,255,0.55)" fontSize={12}>
-        {sym}
-      </text>
-    )
-  }
-
-  const href = tokenIconUrl(token)
-  return (
-    <g transform={`translate(${px},${py})`}>
-      <image href={href} xlinkHref={href} x={-18} y={0} width={14} height={14} />
-      <text x={0} y={12} textAnchor="start" fill="rgba(255,255,255,0.55)" fontSize={12}>
-        {sym}
-      </text>
-    </g>
-  )
-}
-
-function TokenLegend({
-  payload,
-  tokenBySymbol,
-}: {
-  payload?: Array<{ value?: string; color?: string }>
-  tokenBySymbol: Map<string, { address: string; symbol: string; logoURI?: string }>
-}) {
-  const items = payload ?? []
-  return (
-    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 6 }}>
-      {items.map((it) => {
-        const sym = it.value ?? ''
-        const token = tokenBySymbol.get(sym)
-        const href = token ? tokenIconUrl(token) : undefined
-        return (
-          <div key={sym} style={{ display: 'inline-flex', gap: 8, alignItems: 'center', fontSize: 12 }}>
-            <span
-              style={{
-                width: 10,
-                height: 10,
-                borderRadius: 999,
-                background: it.color ?? 'rgba(255,255,255,0.5)',
-                display: 'inline-block',
-              }}
-            />
-            {href ? <img className="tokenIcon" src={href} alt={sym} /> : null}
-            <span style={{ color: 'rgba(255,255,255,0.72)' }}>{sym}</span>
-          </div>
-        )
-      })}
-    </div>
-  )
-}
-
-function toNumber(v: string): number {
-  const n = Number.parseFloat(v)
-  return Number.isFinite(n) ? n : 0
-}
-
-function formatDelta(current: number, previous: number, suffix = ''): string {
-  const delta = current - previous
-  const sign = delta > 0 ? '+' : ''
-  const value = Math.abs(delta) >= 1000 ? delta.toFixed(0) : delta.toFixed(2)
-  return `${sign}${value}${suffix}`
-}
-
-function formatDeltaPct(current: number, previous: number): string {
-  const delta = current - previous
-  const sign = delta > 0 ? '+' : ''
-  return `${sign}${delta.toFixed(1)}%`
-}
-
+// Utility functions
 function pickBucketSizeSeconds(windowSeconds: number): number {
-  // Aim for <= ~120 points so 7d/30d stays responsive.
   const targetPoints = 120
   const ideal = windowSeconds / targetPoints
   const options = [60, 300, 900, 3600, 21600, 86400]
@@ -232,6 +139,16 @@ function formatBucketLabel(windowSeconds: number, tsSeconds: number): string {
   if (windowSeconds <= 24 * 3600) return iso.slice(11, 13) + ':00'
   if (windowSeconds <= 14 * 24 * 3600) return iso.slice(5, 10) + ' ' + iso.slice(11, 13) + ':00'
   return iso.slice(5, 10)
+}
+
+function formatWindowLabel(windowSeconds?: number) {
+  const seconds = Number.isFinite(windowSeconds) ? (windowSeconds as number) : 24 * 3600
+  if (seconds <= 24 * 3600) {
+    const hours = Math.max(1, Math.round(seconds / 3600))
+    return `Last ${hours}h`
+  }
+  const days = Math.max(1, Math.round(seconds / (24 * 3600)))
+  return `Last ${days}d`
 }
 
 function buildTokenBarData(map: Record<string, string>) {
@@ -253,13 +170,7 @@ function buildTopMemoData(transfers: MemoTransfer[]) {
   const topByCount = [...all].sort((a, b) => b.count - a.count).slice(0, 12)
   const topByVolume = [...all].sort((a, b) => b.volume - a.volume).slice(0, 12)
 
-  // Histogram of reuse
-  const hist = {
-    '1': 0,
-    '2-5': 0,
-    '6-20': 0,
-    '21+': 0,
-  }
+  const hist = { '1': 0, '2-5': 0, '6-20': 0, '21+': 0 }
   for (const m of all) {
     if (m.count === 1) hist['1'] += 1
     else if (m.count <= 5) hist['2-5'] += 1
@@ -268,7 +179,6 @@ function buildTopMemoData(transfers: MemoTransfer[]) {
   }
   const histogram = Object.entries(hist).map(([bucket, memos]) => ({ bucket, memos }))
 
-  // Concentration curve (Pareto) by count
   const sorted = [...all].sort((a, b) => b.count - a.count)
   const total = sorted.reduce((s, x) => s + x.count, 0)
   let cum = 0
@@ -417,7 +327,6 @@ function bucketCounts(
 
   const maxTs = Math.max(...withTs.map((i) => i.timestamp))
   const minTs = maxTs - windowSeconds
-
   const bucketSize = pickBucketSizeSeconds(windowSeconds)
 
   const buckets = new Map<number, number>()
@@ -445,8 +354,7 @@ function usePagination(total: number, initialPageSize = 25) {
 
   useEffect(() => {
     if (page > pages - 1) setPage(pages - 1)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pages])
+  }, [page, pages])
 
   return {
     page,
@@ -459,9 +367,112 @@ function usePagination(total: number, initialPageSize = 25) {
   }
 }
 
-function App() {
-  const [window, setWindow] = useState<'1h' | '6h' | '24h' | '7d'>('1h')
-  const [tab, setTab] = useState<'analytics' | 'memo' | 'tables'>('analytics')
+// Chart colors
+const tokenColors: Record<string, string> = {
+  pathUSD: '#3b82f6',
+  alphaUSD: '#f59e0b',
+  betaUSD: '#8b5cf6',
+  thetaUSD: '#10b981',
+}
+
+const chartColors = {
+  primary: '#3b82f6',
+  secondary: '#8b5cf6',
+  tertiary: '#10b981',
+  quaternary: '#f59e0b',
+  danger: '#ef4444',
+}
+
+const tooltipCursor = { fill: 'rgba(30, 41, 59, 0.35)' }
+
+// Custom Tooltip for recharts
+function CustomTooltip({ active, payload, label }: { active?: boolean; payload?: Array<{ name: string; value: number; color?: string }>; label?: string }) {
+  if (!active || !payload?.length) return null
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white/95 p-3 shadow-xl backdrop-blur dark:border-slate-700 dark:bg-slate-800/95">
+      <p className="mb-2 text-xs font-medium text-slate-500 dark:text-slate-400">{label}</p>
+      {payload.map((entry, i) => (
+        <div key={i} className="flex items-center gap-2 text-sm">
+          <span
+            className="h-2 w-2 rounded-full"
+            style={{ backgroundColor: entry.color || chartColors.primary }}
+          />
+          <span className="text-slate-600 dark:text-slate-300">{entry.name}:</span>
+          <span className="font-medium text-slate-900 dark:text-white">
+            {typeof entry.value === 'number' ? entry.value.toLocaleString() : entry.value}
+          </span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function TokenAxisTick({
+  x,
+  y,
+  payload,
+  tokenBySymbol,
+}: {
+  x?: number
+  y?: number
+  payload?: { value?: unknown }
+  tokenBySymbol: Map<string, { address: string; symbol: string; logoURI?: string }>
+}) {
+  const sym = String(payload?.value ?? '')
+  const token = tokenBySymbol.get(sym)
+  const px = Number.isFinite(x) ? (x as number) : 0
+  const py = Number.isFinite(y) ? (y as number) : 0
+
+  if (!token) {
+    return (
+      <text x={px} y={py} dy={14} textAnchor="middle" fill="currentColor" fontSize={12} className="fill-slate-500 dark:fill-slate-400">
+        {sym}
+      </text>
+    )
+  }
+
+  const href = tokenIconUrl(token)
+  return (
+    <g transform={`translate(${px},${py})`}>
+      <image href={href} xlinkHref={href} x={-18} y={0} width={14} height={14} />
+      <text x={0} y={12} textAnchor="start" fill="currentColor" fontSize={12} className="fill-slate-500 dark:fill-slate-400">
+        {sym}
+      </text>
+    </g>
+  )
+}
+
+function TokenLegend({
+  payload,
+  tokenBySymbol,
+}: {
+  payload?: Array<{ value?: string; color?: string }>
+  tokenBySymbol: Map<string, { address: string; symbol: string; logoURI?: string }>
+}) {
+  const items = payload ?? []
+  return (
+    <div className="flex flex-wrap gap-3 pt-2">
+      {items.map((it) => {
+        const sym = it.value ?? ''
+        const token = tokenBySymbol.get(sym)
+        const href = token ? tokenIconUrl(token) : undefined
+        return (
+          <div key={sym} className="inline-flex items-center gap-2 text-xs">
+            <span
+              className="h-2.5 w-2.5 rounded-full"
+              style={{ backgroundColor: it.color ?? chartColors.primary }}
+            />
+            {href && <img className="h-4 w-4 rounded-full" src={href} alt={sym} />}
+            <span className="text-slate-600 dark:text-slate-400">{sym}</span>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+export default function App() {
+  const [activeTab, setActiveTab] = useState('analytics')
   const [memoQuery, setMemoQuery] = useState('')
   const [memoResults, setMemoResults] = useState<MemoTransfer[]>([])
   const [memoLoading, setMemoLoading] = useState(false)
@@ -470,40 +481,20 @@ function App() {
   const [prevData, setPrevData] = useState<DashboardResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [showingCached, setShowingCached] = useState(false)
+
+  // Sponsorship data loaded separately (slower endpoint)
+  const [sponsorshipData, setSponsorshipData] = useState<SponsorshipData | null>(null)
+  const [sponsorshipLoading, setSponsorshipLoading] = useState(true)
 
   async function load() {
-    const cacheKey = `tempoDashboard:${window}`
-    try {
-      const cachedRaw = localStorage.getItem(cacheKey)
-      if (cachedRaw) {
-        const cached = JSON.parse(cachedRaw) as DashboardResponse
-        setData(cached)
-        setPrevData(cached)
-        setShowingCached(true)
-        setLoading(false)
-      } else {
-        setShowingCached(false)
         setLoading(true)
-      }
-    } catch {
-      setShowingCached(false)
-      setLoading(true)
-    }
-
     setError(null)
     try {
-      const res = await fetch(`/api/dashboard?window=${window}`)
+      const res = await fetch('/api/dashboard')
       if (!res.ok) throw new Error(`API error: ${res.status} ${res.statusText}`)
       const json = (await res.json()) as DashboardResponse
       setPrevData(data ?? prevData)
       setData(json)
-      setShowingCached(false)
-      try {
-        localStorage.setItem(cacheKey, JSON.stringify(json))
-      } catch {
-        // ignore
-      }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -511,10 +502,24 @@ function App() {
     }
   }
 
+  async function loadSponsorship() {
+    setSponsorshipLoading(true)
+    try {
+      const res = await fetch('/api/sponsorship')
+      if (!res.ok) throw new Error(`API error: ${res.status} ${res.statusText}`)
+      const json = (await res.json()) as SponsorshipData
+      setSponsorshipData(json)
+    } catch (e) {
+      console.error('Failed to load sponsorship data:', e)
+    } finally {
+      setSponsorshipLoading(false)
+    }
+  }
+
   useEffect(() => {
     void load()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [window])
+    void loadSponsorship() // Load sponsorship data in parallel
+  }, [])
 
   async function runMemoSearch(memoOverride?: string) {
     const query = memoOverride ?? memoQuery
@@ -523,7 +528,7 @@ function App() {
     setMemoLoading(true)
     setMemoError(null)
     try {
-      const res = await fetch(`/api/memo/${query}?window=${window}`)
+      const res = await fetch(`/api/memo/${query}`)
       if (!res.ok) throw new Error(`API error: ${res.status} ${res.statusText}`)
       const json = (await res.json()) as { transfers: MemoTransfer[] }
       setMemoResults(json.transfers ?? [])
@@ -543,9 +548,9 @@ function App() {
   const feesSeries = data ? bucketSumByToken(data.fees, data.windowSeconds) : []
   const complianceSeries = data ? bucketComplianceByType(data.compliance, data.windowSeconds) : []
 
-  const sponsorKnown = data ? data.fees.filter((f) => typeof f.sponsored === 'boolean').length : 0
-  const sponsored = data ? data.fees.filter((f) => f.sponsored === true).length : 0
-  const selfPaid = Math.max(0, sponsorKnown - sponsored)
+  // Use sponsorship data from separate API endpoint
+  const sponsored = sponsorshipData?.sponsoredCount ?? 0
+  const selfPaid = sponsorshipData?.selfPaidCount ?? 0
 
   const feeAmmLiquidity = data ? buildTokenBarData(data.feeAmm.totalLiquidityByToken) : []
 
@@ -568,25 +573,6 @@ function App() {
     (data?.tokens ?? []).map((t) => [t.symbol, { address: t.address, symbol: t.symbol, logoURI: t.logoURI }]),
   )
 
-  const tokenColors: Record<string, string> = {
-    pathUSD: '#67e8f9',
-    alphaUSD: '#fbbf24',
-    betaUSD: '#c4b5fd',
-    thetaUSD: '#34d399',
-  }
-
-  const tooltipCommon = {
-    contentStyle: {
-      background: 'rgba(10, 14, 20, 0.96)',
-      border: '1px solid rgba(255,255,255,0.16)',
-      borderRadius: 10,
-      boxShadow: '0 18px 45px rgba(0,0,0,0.55)',
-    },
-    labelStyle: { color: 'rgba(255,255,255,0.9)' },
-    itemStyle: { color: 'rgba(255,255,255,0.9)' },
-    cursor: { fill: 'rgba(255,255,255,0.06)' },
-  } as const
-
   const memoPager = usePagination(data?.memoTransfers.length ?? 0, 25)
   const compliancePager = usePagination(data?.compliance.length ?? 0, 25)
   const poolsPager = usePagination(data?.feeAmm.pools.length ?? 0, 25)
@@ -605,89 +591,83 @@ function App() {
   } : null
 
   return (
-    <div className="shell">
-      <header className="header">
-        <div>
-          <div className="title">Tempo Analytics</div>
-          <div className="subtitle">
-            Testnet (Moderato) · chainId 42431 · Moonlet RPC
-          </div>
+    <div className="flex min-h-screen flex-col">
+      <Header activeTab={activeTab} onTabChange={setActiveTab} />
+
+      <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-8 sm:px-6 lg:px-8">
+        {/* Hero Section */}
+        <div className="mb-6">
+          <h1 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-white sm:text-4xl">
+            Tempo Analytics Dashboard
+          </h1>
+          <p className="mt-1 text-slate-600 dark:text-slate-400">
+            Real-time analytics for Tempo Network · {formatWindowLabel(data?.windowSeconds)}
+          </p>
         </div>
 
-        <div className="controls">
-          <select
-            value={window}
-            onChange={(e) => setWindow(e.target.value as '1h' | '6h' | '24h' | '7d')}
-          >
-            <option value="1h">1h</option>
-            <option value="6h">6h</option>
-            <option value="24h">24h</option>
-            <option value="7d">7d</option>
-          </select>
-          <button onClick={() => void load()} disabled={loading}>
-            Refresh
-          </button>
-        </div>
-      </header>
+        {/* Error message */}
+        {error && (
+          <Card className="mb-6 border-rose-200 bg-rose-50 dark:border-rose-800 dark:bg-rose-900/20">
+            <CardContent className="py-4">
+              <span className="text-rose-700 dark:text-rose-400">{error}</span>
+            </CardContent>
+          </Card>
+        )}
 
-      <div className="tabs">
-        <button
-          className={`tabBtn ${tab === 'analytics' ? 'active' : ''}`}
-          onClick={() => setTab('analytics')}
-        >
-          Analytics
-        </button>
-        <button className={`tabBtn ${tab === 'tables' ? 'active' : ''}`} onClick={() => setTab('tables')}>
-          Data Explorer
-        </button>
-        <button className={`tabBtn ${tab === 'memo' ? 'active' : ''}`} onClick={() => setTab('memo')}>
-          Memo Explorer
-        </button>
-      </div>
-
-      {tab === 'memo' && (
-        <section className="card">
-          <div className="row">
-            <input
+        {/* Memo Explorer Tab */}
+        {activeTab === 'memo' && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Search by Memo</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex gap-3">
+                <Input
               value={memoQuery}
               onChange={(e) => setMemoQuery(e.target.value)}
-              placeholder="Memo (bytes32 hex), e.g. 0x…"
-            />
-            <button onClick={() => void runMemoSearch()} disabled={memoQuery.length !== 66 || memoLoading}>
-              {memoLoading ? 'Searching…' : 'Search'}
-            </button>
+                  placeholder="Memo (bytes32 hex), e.g. 0x..."
+                  className="flex-1"
+                />
+                <Button onClick={() => void runMemoSearch()} disabled={memoQuery.length !== 66 || memoLoading}>
+                  {memoLoading ? 'Searching...' : 'Search'}
+                </Button>
           </div>
-          <div className="hint">Memo must be 32-byte hex (0x + 64 hex).</div>
+              <p className="mt-2 text-sm text-slate-500">Memo must be 32-byte hex (0x + 64 hex).</p>
 
-          {memoError && <div className="error">{memoError}</div>}
+              {memoError && (
+                <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 p-4 text-rose-700 dark:border-rose-800 dark:bg-rose-900/20 dark:text-rose-400">
+                  {memoError}
+                </div>
+              )}
 
-          <div className="tableControls">
-            <div className="muted">{memoResults.length} rows</div>
-            <div className="pager">
-              <button
-                className="pagerBtn"
+              {memoResults.length > 0 && (
+                <div className="mt-6">
+                  <div className="mb-4 flex items-center justify-between">
+                    <span className="text-sm text-slate-500">{memoResults.length} results</span>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
                 disabled={memoSearchPager.page === 0}
                 onClick={() => memoSearchPager.setPage(memoSearchPager.page - 1)}
               >
-                Prev
-              </button>
-              <span className="mono">{memoSearchPager.page + 1}/{memoSearchPager.pages}</span>
-              <button
-                className="pagerBtn"
+                        Previous
+                      </Button>
+                      <span className="text-sm font-medium">
+                        {memoSearchPager.page + 1} / {memoSearchPager.pages}
+                      </span>
+                      <Button
+                        variant="outline"
+                        size="sm"
                 disabled={memoSearchPager.page + 1 >= memoSearchPager.pages}
                 onClick={() => memoSearchPager.setPage(memoSearchPager.page + 1)}
               >
                 Next
-              </button>
-              <select value={memoSearchPager.pageSize} onChange={(e) => memoSearchPager.setPageSize(Number(e.target.value))}>
-                <option value={25}>25</option>
-                <option value={50}>50</option>
-                <option value={100}>100</option>
-              </select>
+                      </Button>
             </div>
           </div>
-
-          <table>
+                  <div className="overflow-x-auto">
+                    <table className="data-table">
             <thead>
               <tr>
                 <th>Time</th>
@@ -701,17 +681,20 @@ function App() {
             </thead>
             <tbody>
               {memoResults.slice(memoSearchPager.start, memoSearchPager.end).map((t) => (
-                <tr key={`${t.txHash}:${t.memo}`}> 
-                  <td className="mono">{formatTs(t.timestamp)}</td>
-                  <td>
-                    <TokenBadge token={t.token} />
-                  </td>
-                  <td className="mono">{t.amount}</td>
-                  <td className="mono">{short(t.from)}</td>
-                  <td className="mono">{short(t.to)}</td>
-                  <td className="mono">{short(t.memo)}</td>
-                  <td className="mono">
-                    <a href={`https://explore.tempo.xyz/tx/${t.txHash}`} target="_blank" rel="noreferrer">
+                <tr key={`${t.txHash}:${t.memo}`}>
+                            <td className="font-mono text-xs">{formatTs(t.timestamp)}</td>
+                            <td><TokenBadge token={t.token} size="sm" /></td>
+                            <td className="font-mono">{t.amount}</td>
+                            <td className="font-mono text-xs">{short(t.from)}</td>
+                            <td className="font-mono text-xs">{short(t.to)}</td>
+                            <td className="font-mono text-xs">{short(t.memo)}</td>
+                            <td>
+                              <a
+                                href={`https://explore.tempo.xyz/tx/${t.txHash}`}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="font-mono text-xs text-primary-600 hover:underline dark:text-primary-400"
+                              >
                       {short(t.txHash)}
                     </a>
                   </td>
@@ -719,61 +702,138 @@ function App() {
               ))}
             </tbody>
           </table>
-        </section>
-      )}
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
 
-      {loading && <div className="muted">Loading…</div>}
-      {!loading && showingCached && <div className="muted">Showing cached data; refreshing…</div>}
-      {error && <div className="error">{error}</div>}
+        {/* Analytics Tab - Loading Skeleton */}
+        {loading && activeTab === 'analytics' && (
+          <>
+            {/* Stats Grid Skeleton */}
+            <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              {[...Array(8)].map((_, i) => (
+                <Card key={i}>
+                  <CardContent className="p-6">
+                    <div className="flex items-center justify-between">
+                      <div className="space-y-2">
+                        <Skeleton className="h-4 w-24" />
+                        <Skeleton className="h-8 w-16" />
+            </div>
+                      <Skeleton className="h-10 w-10 rounded-xl" />
+            </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
 
-      {data && tab === 'analytics' && (
-        <>
-          <section className="grid">
-            <div className="stat">
-              <div className="k">Total transfers</div>
-              <div className="v">{data.aggregates.totalTransferCount}</div>
-              {deltas && <div className="delta">{deltas.totalTransfers}</div>}
-            </div>
-            <div className="stat">
-              <div className="k">Memo transfers</div>
-              <div className="v">{data.aggregates.memoTransferCount}</div>
-              {deltas && <div className="delta">{deltas.memoTransfers}</div>}
-            </div>
-            <div className="stat">
-              <div className="k">Unique memos</div>
-              <div className="v">{data.aggregates.uniqueMemos}</div>
-            </div>
-            <div className="stat">
-              <div className="k">Fee payments</div>
-              <div className="v">{data.fees.length}</div>
-              {deltas && <div className="delta">{deltas.feePayments}</div>}
-            </div>
-            <div className="stat">
-              <div className="k">Unique fee payers</div>
-              <div className="v">{data.aggregates.uniqueFeePayers}</div>
-              {deltas && <div className="delta">{deltas.uniqueFeePayers}</div>}
-            </div>
-            <div className="stat">
-              <div className="k">Sponsored fee payments</div>
-              <div className="v">{(data.aggregates.sponsoredFeePaymentRate * 100).toFixed(1)}%</div>
-              {deltas && <div className="delta">{deltas.sponsoredRate}</div>}
-            </div>
-            <div className="stat">
-              <div className="k">Compliance events</div>
-              <div className="v">{data.aggregates.complianceEventCount}</div>
-              {deltas && <div className="delta">{deltas.complianceEvents}</div>}
-            </div>
-            <div className="stat">
-              <div className="k">Block range</div>
-              <div className="v">
-                {data.range.fromBlock}–{data.range.toBlock}
-              </div>
-            </div>
-          </section>
+            {/* Charts Skeleton */}
+            <Card className="mb-8">
+              <CardHeader>
+                <Skeleton className="h-6 w-40" />
+              </CardHeader>
+              <CardContent>
+                <Skeleton className="h-24 w-full" />
+              </CardContent>
+            </Card>
 
-          <section className="card">
-            <div className="sectionTitle">Payments Funnel</div>
-            <table>
+            <div className="grid gap-6 lg:grid-cols-2">
+              {[...Array(4)].map((_, i) => (
+                <Card key={i}>
+                  <CardHeader>
+                    <Skeleton className="h-5 w-48" />
+                    <Skeleton className="h-4 w-32" />
+                  </CardHeader>
+                  <CardContent>
+                    <Skeleton className="h-64 w-full" />
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </>
+        )}
+
+        {/* Analytics Tab */}
+        {data && !loading && activeTab === 'analytics' && (
+          <>
+            {/* Stats Grid */}
+            <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <StatCard
+                title="Total Transfers"
+                value={data.aggregates.totalTransferCount.toLocaleString()}
+                delta={deltas?.totalTransfers}
+                deltaType={deltas?.totalTransfers?.startsWith('+') ? 'positive' : 'neutral'}
+                icon={Send}
+              />
+              <StatCard
+                title="Memo Transfers"
+                value={data.aggregates.memoTransferCount.toLocaleString()}
+                delta={deltas?.memoTransfers}
+                deltaType={deltas?.memoTransfers?.startsWith('+') ? 'positive' : 'neutral'}
+                icon={FileText}
+              />
+              <StatCard
+                title="Unique Memos"
+                value={data.aggregates.uniqueMemos.toLocaleString()}
+                icon={Hash}
+              />
+              <StatCard
+                title="Fee Payments"
+                value={data.fees.length.toLocaleString()}
+                delta={deltas?.feePayments}
+                deltaType={deltas?.feePayments?.startsWith('+') ? 'positive' : 'neutral'}
+                icon={Coins}
+              />
+              <StatCard
+                title="Unique Fee Payers"
+                value={data.aggregates.uniqueFeePayers.toLocaleString()}
+                delta={deltas?.uniqueFeePayers}
+                deltaType={deltas?.uniqueFeePayers?.startsWith('+') ? 'positive' : 'neutral'}
+                icon={Users}
+              />
+              {sponsorshipLoading ? (
+                <Card className="bg-slate-800/50 border-slate-700/50">
+                  <CardContent className="p-6">
+                    <div className="flex items-center justify-between">
+                      <div className="space-y-2">
+                        <Skeleton className="h-4 w-24" />
+                        <Skeleton className="h-8 w-16" />
+                      </div>
+                      <Skeleton className="h-10 w-10 rounded-lg" />
+                    </div>
+                  </CardContent>
+                </Card>
+              ) : (
+                <StatCard
+                  title="Sponsored Fees"
+                  value={sponsorshipData ? `${(sponsorshipData.sponsorshipRate * 100).toFixed(1)}%` : 'N/A'}
+                  icon={Wallet}
+                />
+              )}
+              <StatCard
+                title="Compliance Events"
+                value={data.aggregates.complianceEventCount.toLocaleString()}
+                delta={deltas?.complianceEvents}
+                deltaType={deltas?.complianceEvents?.startsWith('+') ? 'positive' : 'neutral'}
+                icon={Shield}
+              />
+              <StatCard
+                title="Block Range"
+                value={`${data.range.fromBlock} - ${data.range.toBlock}`}
+                icon={Activity}
+              />
+            </div>
+
+            {/* Payments Funnel */}
+            <Card className="mb-8">
+              <CardHeader>
+                <CardTitle>Payments Funnel</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="overflow-x-auto">
+                  <table className="data-table">
               <thead>
                 <tr>
                   <th>Stage</th>
@@ -783,108 +843,91 @@ function App() {
               </thead>
               <tbody>
                 <tr>
-                  <td>Total transfers</td>
-                  <td className="mono">{data.aggregates.totalTransferCount}</td>
-                  <td className="mono">100%</td>
+                        <td className="font-medium">Total transfers</td>
+                        <td className="font-mono">{data.aggregates.totalTransferCount.toLocaleString()}</td>
+                        <td className="font-mono">100%</td>
                 </tr>
                 <tr>
-                  <td>Memo transfers (coverage)</td>
-                  <td className="mono">{data.aggregates.memoTransferCount}</td>
-                  <td className="mono">
+                        <td className="font-medium">Memo transfers (coverage)</td>
+                        <td className="font-mono">{data.aggregates.memoTransferCount.toLocaleString()}</td>
+                        <td className="font-mono">
                     {data.aggregates.totalTransferCount > 0
                       ? ((data.aggregates.memoTransferCount / data.aggregates.totalTransferCount) * 100).toFixed(1)
                       : '0'}%
                   </td>
                 </tr>
                 <tr>
-                  <td>Sponsored fee transfers</td>
-                  <td className="mono">{data.aggregates.sponsoredFeePayments}</td>
-                  <td className="mono">
-                    {data.aggregates.memoTransferCount > 0
-                      ? ((data.aggregates.sponsoredFeePayments / data.aggregates.memoTransferCount) * 100).toFixed(1)
-                      : '0'}%
+                        <td className="font-medium">Sponsored fee transfers</td>
+                        <td className="font-mono">
+                          {sponsorshipLoading ? (
+                            <Skeleton className="h-4 w-12 inline-block" />
+                          ) : sponsorshipData ? (
+                            sponsorshipData.sponsoredCount.toLocaleString()
+                          ) : 'N/A'}
+                        </td>
+                        <td className="font-mono">
+                          {sponsorshipLoading ? (
+                            <Skeleton className="h-4 w-12 inline-block" />
+                          ) : sponsorshipData ? (
+                            `${(sponsorshipData.sponsorshipRate * 100).toFixed(1)}%`
+                          ) : 'N/A'}
                   </td>
                 </tr>
               </tbody>
             </table>
-          </section>
-
-          <section className="charts">
-            <div className="chartCard">
-              <div className="chartTitle">
-                <div className="label">Top Counterparties (Senders)</div>
-                <div className="meta">by memoed transfer volume</div>
               </div>
-              <div style={{ width: '100%', height: 260 }}>
+              </CardContent>
+            </Card>
+
+            {/* Charts Grid */}
+            <div className="grid gap-6 lg:grid-cols-2">
+              <ChartCard title="Top Counterparties (Senders)" description="By memoed transfer volume">
+                <div className="h-64">
                 <ResponsiveContainer>
                   <BarChart
                     data={counterpartyStats?.topSenders.map((r) => ({
                       address: short(r.address),
                       addressFull: r.address,
                       volume: r.volume,
-                      count: r.count,
                     }))}
                     margin={{ top: 8, right: 10, bottom: 0, left: 0 }}
                   >
-                    <CartesianGrid stroke="rgba(255,255,255,0.08)" strokeDasharray="3 3" />
-                    <XAxis dataKey="address" stroke="rgba(255,255,255,0.55)" tick={{ fontSize: 12 }} />
-                    <YAxis stroke="rgba(255,255,255,0.55)" tick={{ fontSize: 12 }} />
-                    <Tooltip
-                      formatter={(value, name, props) =>
-                        name === 'volume'
-                          ? [Number(value).toFixed(2), `volume (${(props.payload as any).addressFull})`]
-                          : [value, name]}
-                      {...tooltipCommon}
-                    />
-                    <Bar dataKey="volume" fill="#fbbf24" radius={[8, 8, 0, 0]} />
+                      <CartesianGrid strokeDasharray="3 3" className="stroke-slate-200 dark:stroke-slate-700" />
+                      <XAxis dataKey="address" tick={{ fontSize: 12 }} className="fill-slate-500 dark:fill-slate-400" />
+                      <YAxis tick={{ fontSize: 12 }} className="fill-slate-500 dark:fill-slate-400" />
+                      <Tooltip content={<CustomTooltip />} cursor={tooltipCursor} />
+                      <Bar dataKey="volume" fill={chartColors.quaternary} radius={[6, 6, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
-            </div>
+              </ChartCard>
 
-            <div className="chartCard">
-              <div className="chartTitle">
-                <div className="label">Top Counterparties (Receivers)</div>
-                <div className="meta">by memoed transfer volume</div>
-              </div>
-              <div style={{ width: '100%', height: 260 }}>
+              <ChartCard title="Top Counterparties (Receivers)" description="By memoed transfer volume">
+                <div className="h-64">
                 <ResponsiveContainer>
                   <BarChart
                     data={counterpartyStats?.topReceivers.map((r) => ({
                       address: short(r.address),
                       addressFull: r.address,
                       volume: r.volume,
-                      count: r.count,
                     }))}
                     margin={{ top: 8, right: 10, bottom: 0, left: 0 }}
                   >
-                    <CartesianGrid stroke="rgba(255,255,255,0.08)" strokeDasharray="3 3" />
-                    <XAxis dataKey="address" stroke="rgba(255,255,255,0.55)" tick={{ fontSize: 12 }} />
-                    <YAxis stroke="rgba(255,255,255,0.55)" tick={{ fontSize: 12 }} />
-                    <Tooltip
-                      formatter={(value, name, props) =>
-                        name === 'volume'
-                          ? [Number(value).toFixed(2), `volume (${(props.payload as any).addressFull})`]
-                          : [value, name]}
-                      {...tooltipCommon}
-                    />
-                    <Bar dataKey="volume" fill="#67e8f9" radius={[8, 8, 0, 0]} />
+                      <CartesianGrid strokeDasharray="3 3" className="stroke-slate-200 dark:stroke-slate-700" />
+                      <XAxis dataKey="address" tick={{ fontSize: 12 }} className="fill-slate-500 dark:fill-slate-400" />
+                      <YAxis tick={{ fontSize: 12 }} className="fill-slate-500 dark:fill-slate-400" />
+                      <Tooltip content={<CustomTooltip />} cursor={tooltipCursor} />
+                      <Bar dataKey="volume" fill={chartColors.primary} radius={[6, 6, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
-            </div>
-          </section>
+              </ChartCard>
 
-          <section className="charts">
-            <div className="chartCard">
-              <div className="chartTitle">
-                <div className="label">Token Dominance (Memo Volume)</div>
-                <div className="meta">share of memoed volume</div>
-              </div>
-              <div style={{ width: '100%', height: 260 }}>
+              <ChartCard title="Token Dominance (Memo Volume)" description="Share of memoed volume">
+                <div className="h-64">
                 <ResponsiveContainer>
                   <PieChart>
-                    <Tooltip {...tooltipCommon} />
+                      <Tooltip content={<CustomTooltip />} cursor={tooltipCursor} />
                     <Pie
                       data={tokenDominance}
                       dataKey="value"
@@ -894,30 +937,29 @@ function App() {
                       paddingAngle={2}
                     >
                       {tokenDominance.map((e) => (
-                        <Cell key={e.token} fill={tokenColors[e.token] ?? '#67e8f9'} />
+                          <Cell key={e.token} fill={tokenColors[e.token] ?? chartColors.primary} />
                       ))}
                     </Pie>
                     <Legend content={(p) => <TokenLegend tokenBySymbol={tokenBySymbol} payload={p.payload as any} />} />
                   </PieChart>
                 </ResponsiveContainer>
               </div>
-            </div>
+              </ChartCard>
 
-            <div className="chartCard">
-              <div className="chartTitle">
-                <div className="label">Fee Demand vs Pool Reserves</div>
-                <div className="meta">Fee AMM liquidity health</div>
-              </div>
-              {liquidityAlerts.length > 0 && (
-                <div className="chips" style={{ marginBottom: 10 }}>
+              <ChartCard
+                title="Fee Demand vs Pool Reserves"
+                description="Fee AMM liquidity health"
+                action={
+                  liquidityAlerts.length > 0 && (
+                    <div className="flex gap-2">
                   {liquidityAlerts.map((r) => (
-                    <div className="chip" key={r.token}>
-                      {r.token} low liquidity
-                    </div>
+                        <Badge key={r.token} variant="warning">{r.token} low liquidity</Badge>
                   ))}
                 </div>
-              )}
-              <div style={{ width: '100%', height: 260 }}>
+                  )
+                }
+              >
+                <div className="h-64">
                 <ResponsiveContainer>
                   <BarChart
                     data={liquidityRows.map((r) => ({
@@ -927,30 +969,23 @@ function App() {
                     }))}
                     margin={{ top: 8, right: 10, bottom: 0, left: 0 }}
                   >
-                    <CartesianGrid stroke="rgba(255,255,255,0.08)" strokeDasharray="3 3" />
+                      <CartesianGrid strokeDasharray="3 3" className="stroke-slate-200 dark:stroke-slate-700" />
                     <XAxis
                       dataKey="token"
-                      stroke="rgba(255,255,255,0.55)"
                       tick={(p) => <TokenAxisTick {...(p as any)} tokenBySymbol={tokenBySymbol} />}
                     />
-                    <YAxis stroke="rgba(255,255,255,0.55)" tick={{ fontSize: 12 }} />
-                    <Tooltip {...tooltipCommon} />
+                      <YAxis tick={{ fontSize: 12 }} className="fill-slate-500 dark:fill-slate-400" />
+                      <Tooltip content={<CustomTooltip />} cursor={tooltipCursor} />
                     <Legend />
-                    <Bar dataKey="demand" fill="#fb7185" radius={[8, 8, 0, 0]} />
-                    <Bar dataKey="reserve" fill="#34d399" radius={[8, 8, 0, 0]} />
+                      <Bar dataKey="demand" fill={chartColors.danger} radius={[6, 6, 0, 0]} />
+                      <Bar dataKey="reserve" fill={chartColors.tertiary} radius={[6, 6, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
-            </div>
-          </section>
+              </ChartCard>
 
-          <section className="charts">
-            <div className="chartCard">
-              <div className="chartTitle">
-                <div className="label">Activity Over Time</div>
-                <div className="meta">bucketed from sampled events</div>
-              </div>
-              <div style={{ width: '100%', height: 260 }}>
+              <ChartCard title="Activity Over Time" description="Bucketed from sampled events">
+                <div className="h-64">
                 <ResponsiveContainer>
                   <LineChart
                     data={(() => {
@@ -958,9 +993,7 @@ function App() {
                       const fees = bucketCounts(data.fees, data.windowSeconds)
                       const comp = bucketCounts(data.compliance, data.windowSeconds)
                       const byT = new Map<string, { t: string; memos: number; fees: number; policies: number }>()
-                      for (const row of memo) {
-                        byT.set(row.t, { t: row.t, memos: row.count, fees: 0, policies: 0 })
-                      }
+                        for (const row of memo) byT.set(row.t, { t: row.t, memos: row.count, fees: 0, policies: 0 })
                       for (const row of fees) {
                         const cur = byT.get(row.t) ?? { t: row.t, memos: 0, fees: 0, policies: 0 }
                         cur.fees = row.count
@@ -975,32 +1008,24 @@ function App() {
                     })()}
                     margin={{ top: 8, right: 10, bottom: 0, left: 0 }}
                   >
-                    <CartesianGrid stroke="rgba(255,255,255,0.08)" strokeDasharray="3 3" />
-                    <XAxis dataKey="t" stroke="rgba(255,255,255,0.55)" tick={{ fontSize: 12 }} />
-                    <YAxis stroke="rgba(255,255,255,0.55)" tick={{ fontSize: 12 }} />
-                    <Tooltip
-                      {...tooltipCommon}
-                    />
+                      <CartesianGrid strokeDasharray="3 3" className="stroke-slate-200 dark:stroke-slate-700" />
+                      <XAxis dataKey="t" tick={{ fontSize: 12 }} className="fill-slate-500 dark:fill-slate-400" />
+                      <YAxis tick={{ fontSize: 12 }} className="fill-slate-500 dark:fill-slate-400" />
+                      <Tooltip content={<CustomTooltip />} cursor={tooltipCursor} />
                     <Legend />
-                    <Line type="monotone" dataKey="memos" stroke="#fbbf24" strokeWidth={2} dot={false} />
-                    <Line type="monotone" dataKey="fees" stroke="#67e8f9" strokeWidth={2} dot={false} />
-                    <Line type="monotone" dataKey="policies" stroke="#c4b5fd" strokeWidth={2} dot={false} />
+                      <Line type="monotone" dataKey="memos" stroke={chartColors.quaternary} strokeWidth={2} dot={false} />
+                      <Line type="monotone" dataKey="fees" stroke={chartColors.primary} strokeWidth={2} dot={false} />
+                      <Line type="monotone" dataKey="policies" stroke={chartColors.secondary} strokeWidth={2} dot={false} />
                   </LineChart>
                 </ResponsiveContainer>
               </div>
-            </div>
+              </ChartCard>
 
-            <div className="chartCard">
-              <div className="chartTitle">
-                <div className="label">Fees Paid By Token</div>
-                <div className="meta">to FeeManager</div>
-              </div>
-              <div style={{ width: '100%', height: 260 }}>
+              <ChartCard title="Fees Paid By Token" description="To FeeManager">
+                <div className="h-64">
                 <ResponsiveContainer>
                   <PieChart>
-                    <Tooltip
-                      {...tooltipCommon}
-                    />
+                      <Tooltip content={<CustomTooltip />} cursor={tooltipCursor} />
                     <Pie
                       data={buildTokenBarData(data.aggregates.feePaidByToken)}
                       dataKey="value"
@@ -1010,47 +1035,34 @@ function App() {
                       paddingAngle={2}
                     >
                       {buildTokenBarData(data.aggregates.feePaidByToken).map((e) => (
-                        <Cell key={e.token} fill={tokenColors[e.token] ?? '#67e8f9'} />
+                          <Cell key={e.token} fill={tokenColors[e.token] ?? chartColors.primary} />
                       ))}
                     </Pie>
                     <Legend content={(p) => <TokenLegend tokenBySymbol={tokenBySymbol} payload={p.payload as any} />} />
                   </PieChart>
                 </ResponsiveContainer>
               </div>
-            </div>
-          </section>
+              </ChartCard>
 
-          <section className="charts">
-            <div className="chartCard">
-              <div className="chartTitle">
-                <div className="label">Memo Transfer Volume By Token</div>
-                <div className="meta">units in token decimals</div>
-              </div>
-              <div style={{ width: '100%', height: 260 }}>
+              <ChartCard title="Memo Transfer Volume By Token" description="Units in token decimals">
+                <div className="h-64">
                 <ResponsiveContainer>
                   <BarChart data={buildTokenBarData(data.aggregates.memoTransferVolumeByToken)}>
-                    <CartesianGrid stroke="rgba(255,255,255,0.08)" strokeDasharray="3 3" />
+                      <CartesianGrid strokeDasharray="3 3" className="stroke-slate-200 dark:stroke-slate-700" />
                     <XAxis
                       dataKey="token"
-                      stroke="rgba(255,255,255,0.55)"
                       tick={(p) => <TokenAxisTick {...(p as any)} tokenBySymbol={tokenBySymbol} />}
                     />
-                    <YAxis stroke="rgba(255,255,255,0.55)" tick={{ fontSize: 12 }} />
-                    <Tooltip
-                      {...tooltipCommon}
-                    />
-                    <Bar dataKey="value" fill="#fbbf24" radius={[8, 8, 0, 0]} />
+                      <YAxis tick={{ fontSize: 12 }} className="fill-slate-500 dark:fill-slate-400" />
+                      <Tooltip content={<CustomTooltip />} cursor={tooltipCursor} />
+                      <Bar dataKey="value" fill={chartColors.quaternary} radius={[6, 6, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
-            </div>
+              </ChartCard>
 
-            <div className="chartCard">
-              <div className="chartTitle">
-                <div className="label">Top Fee Payments (sample)</div>
-                <div className="meta">last {Math.min(12, data.fees.length)} events</div>
-              </div>
-              <div style={{ width: '100%', height: 260 }}>
+              <ChartCard title="Top Fee Payments (sample)" description={`Last ${Math.min(12, data.fees.length)} events`}>
+                <div className="h-64">
                 <ResponsiveContainer>
                   <BarChart
                     data={data.fees
@@ -1058,32 +1070,23 @@ function App() {
                       .map((f) => ({ token: f.token.symbol, amount: toNumber(f.amount) }))
                       .reverse()}
                   >
-                    <CartesianGrid stroke="rgba(255,255,255,0.08)" strokeDasharray="3 3" />
+                      <CartesianGrid strokeDasharray="3 3" className="stroke-slate-200 dark:stroke-slate-700" />
                     <XAxis
                       dataKey="token"
-                      stroke="rgba(255,255,255,0.55)"
                       tick={(p) => <TokenAxisTick {...(p as any)} tokenBySymbol={tokenBySymbol} />}
                     />
-                    <YAxis stroke="rgba(255,255,255,0.55)" tick={{ fontSize: 12 }} />
-                    <Tooltip
-                      {...tooltipCommon}
-                    />
-                    <Bar dataKey="amount" fill="#67e8f9" radius={[8, 8, 0, 0]} />
+                      <YAxis tick={{ fontSize: 12 }} className="fill-slate-500 dark:fill-slate-400" />
+                      <Tooltip content={<CustomTooltip />} cursor={tooltipCursor} />
+                      <Bar dataKey="amount" fill={chartColors.primary} radius={[6, 6, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
-            </div>
-          </section>
+              </ChartCard>
 
           {memoStats && feePayerStats && complianceStats && (
             <>
-              <section className="charts">
-                <div className="chartCard">
-                  <div className="chartTitle">
-                    <div className="label">Top Memos By Count</div>
-                    <div className="meta">reconciliation identifiers</div>
-                  </div>
-                  <div style={{ width: '100%', height: 260 }}>
+                  <ChartCard title="Top Memos By Count" description="Reconciliation identifiers">
+                    <div className="h-64">
                     <ResponsiveContainer>
                       <BarChart
                         data={memoStats.topByCount.map((m) => ({
@@ -1092,108 +1095,75 @@ function App() {
                           count: m.count,
                         }))}
                       >
-                        <CartesianGrid stroke="rgba(255,255,255,0.08)" strokeDasharray="3 3" />
-                        <XAxis dataKey="memo" stroke="rgba(255,255,255,0.55)" tick={{ fontSize: 12 }} />
-                        <YAxis stroke="rgba(255,255,255,0.55)" tick={{ fontSize: 12 }} />
-                        <Tooltip
-                          formatter={(value, _name, props) => [value, (props.payload as any).memoFull]}
-                          {...tooltipCommon}
-                        />
-                        <Bar dataKey="count" fill="#fbbf24" radius={[8, 8, 0, 0]} />
+                          <CartesianGrid strokeDasharray="3 3" className="stroke-slate-200 dark:stroke-slate-700" />
+                          <XAxis dataKey="memo" tick={{ fontSize: 12 }} className="fill-slate-500 dark:fill-slate-400" />
+                          <YAxis tick={{ fontSize: 12 }} className="fill-slate-500 dark:fill-slate-400" />
+                          <Tooltip content={<CustomTooltip />} cursor={tooltipCursor} />
+                          <Bar dataKey="count" fill={chartColors.quaternary} radius={[6, 6, 0, 0]} />
                       </BarChart>
                     </ResponsiveContainer>
                   </div>
-                </div>
+                  </ChartCard>
 
-                <div className="chartCard">
-                  <div className="chartTitle">
-                    <div className="label">Memo Reuse Distribution</div>
-                    <div className="meta">how many memos repeat</div>
-                  </div>
-                  <div style={{ width: '100%', height: 260 }}>
+                  <ChartCard title="Memo Reuse Distribution" description="How many memos repeat">
+                    <div className="h-64">
                     <ResponsiveContainer>
                       <BarChart data={memoStats.histogram}>
-                        <CartesianGrid stroke="rgba(255,255,255,0.08)" strokeDasharray="3 3" />
-                        <XAxis dataKey="bucket" stroke="rgba(255,255,255,0.55)" tick={{ fontSize: 12 }} />
-                        <YAxis stroke="rgba(255,255,255,0.55)" tick={{ fontSize: 12 }} />
-                        <Tooltip
-                          {...tooltipCommon}
-                        />
-                        <Bar dataKey="memos" fill="#c4b5fd" radius={[8, 8, 0, 0]} />
+                          <CartesianGrid strokeDasharray="3 3" className="stroke-slate-200 dark:stroke-slate-700" />
+                          <XAxis dataKey="bucket" tick={{ fontSize: 12 }} className="fill-slate-500 dark:fill-slate-400" />
+                          <YAxis tick={{ fontSize: 12 }} className="fill-slate-500 dark:fill-slate-400" />
+                          <Tooltip content={<CustomTooltip />} cursor={tooltipCursor} />
+                          <Bar dataKey="memos" fill={chartColors.secondary} radius={[6, 6, 0, 0]} />
                       </BarChart>
                     </ResponsiveContainer>
                   </div>
-                </div>
-              </section>
+                  </ChartCard>
 
-              <section className="charts">
-                <div className="chartCard">
-                  <div className="chartTitle">
-                    <div className="label">Memo Concentration (Pareto)</div>
-                    <div className="meta">cumulative share by top N memos</div>
-                  </div>
-                  <div style={{ width: '100%', height: 260 }}>
+                  <ChartCard title="Memo Concentration (Pareto)" description="Cumulative share by top N memos">
+                    <div className="h-64">
                     <ResponsiveContainer>
                       <LineChart data={memoStats.concentration} margin={{ top: 8, right: 10, bottom: 0, left: 0 }}>
-                        <CartesianGrid stroke="rgba(255,255,255,0.08)" strokeDasharray="3 3" />
-                        <XAxis dataKey="rank" stroke="rgba(255,255,255,0.55)" tick={{ fontSize: 12 }} />
-                        <YAxis stroke="rgba(255,255,255,0.55)" tick={{ fontSize: 12 }} domain={[0, 100]} />
-                        <Tooltip
-                          {...tooltipCommon}
-                        />
-                        <Line type="monotone" dataKey="cumulativeShare" stroke="#34d399" strokeWidth={2} dot={false} />
+                          <CartesianGrid strokeDasharray="3 3" className="stroke-slate-200 dark:stroke-slate-700" />
+                          <XAxis dataKey="rank" tick={{ fontSize: 12 }} className="fill-slate-500 dark:fill-slate-400" />
+                          <YAxis tick={{ fontSize: 12 }} domain={[0, 100]} className="fill-slate-500 dark:fill-slate-400" />
+                          <Tooltip content={<CustomTooltip />} cursor={tooltipCursor} />
+                          <Line type="monotone" dataKey="cumulativeShare" stroke={chartColors.tertiary} strokeWidth={2} dot={false} />
                       </LineChart>
                     </ResponsiveContainer>
                   </div>
-                </div>
+                  </ChartCard>
 
-                <div className="chartCard">
-                  <div className="chartTitle">
-                    <div className="label">Top Fee Payers</div>
-                    <div className="meta">top10 concentration {feePayerStats.concentrationTop10.toFixed(1)}%</div>
-                  </div>
-                  <div style={{ width: '100%', height: 260 }}>
+                  <ChartCard
+                    title="Top Fee Payers"
+                    description={`Top10 concentration ${feePayerStats.concentrationTop10.toFixed(1)}%`}
+                  >
+                    <div className="h-64">
                     <ResponsiveContainer>
                       <BarChart
                         data={feePayerStats.top.map((p) => ({
                           payer: short(p.payer),
                           payerFull: p.payer,
                           total: p.total,
-                          count: p.count,
                         }))}
                       >
-                        <CartesianGrid stroke="rgba(255,255,255,0.08)" strokeDasharray="3 3" />
-                        <XAxis dataKey="payer" stroke="rgba(255,255,255,0.55)" tick={{ fontSize: 12 }} />
-                        <YAxis stroke="rgba(255,255,255,0.55)" tick={{ fontSize: 12 }} />
-                        <Tooltip
-                          formatter={(value, name, props) =>
-                            name === 'total'
-                              ? [value, `total (${(props.payload as any).payerFull})`]
-                              : [value, name]}
-                          {...tooltipCommon}
-                        />
-                        <Bar dataKey="total" fill="#67e8f9" radius={[8, 8, 0, 0]} />
+                          <CartesianGrid strokeDasharray="3 3" className="stroke-slate-200 dark:stroke-slate-700" />
+                          <XAxis dataKey="payer" tick={{ fontSize: 12 }} className="fill-slate-500 dark:fill-slate-400" />
+                          <YAxis tick={{ fontSize: 12 }} className="fill-slate-500 dark:fill-slate-400" />
+                          <Tooltip content={<CustomTooltip />} cursor={tooltipCursor} />
+                          <Bar dataKey="total" fill={chartColors.primary} radius={[6, 6, 0, 0]} />
                       </BarChart>
                     </ResponsiveContainer>
                   </div>
-                </div>
-              </section>
+                  </ChartCard>
 
-              <section className="charts">
-                <div className="chartCard">
-                  <div className="chartTitle">
-                    <div className="label">Fees Over Time (By Token)</div>
-                    <div className="meta">stacked · sampled from fee transfers</div>
-                  </div>
-                  <div style={{ width: '100%', height: 260 }}>
+                  <ChartCard title="Fees Over Time (By Token)" description="Stacked · sampled from fee transfers">
+                    <div className="h-64">
                     <ResponsiveContainer>
                   <AreaChart data={feesSeries} margin={{ top: 8, right: 10, bottom: 0, left: 0 }}>
-                        <CartesianGrid stroke="rgba(255,255,255,0.08)" strokeDasharray="3 3" />
-                        <XAxis dataKey="t" stroke="rgba(255,255,255,0.55)" tick={{ fontSize: 12 }} />
-                        <YAxis stroke="rgba(255,255,255,0.55)" tick={{ fontSize: 12 }} />
-                        <Tooltip
-                          {...tooltipCommon}
-                        />
+                          <CartesianGrid strokeDasharray="3 3" className="stroke-slate-200 dark:stroke-slate-700" />
+                          <XAxis dataKey="t" tick={{ fontSize: 12 }} className="fill-slate-500 dark:fill-slate-400" />
+                          <YAxis tick={{ fontSize: 12 }} className="fill-slate-500 dark:fill-slate-400" />
+                          <Tooltip content={<CustomTooltip />} cursor={tooltipCursor} />
                     <Legend content={(p) => <TokenLegend tokenBySymbol={tokenBySymbol} payload={p.payload as any} />} />
                     {Object.keys(data.aggregates.feePaidByToken).map((sym) => (
                       <Area
@@ -1201,198 +1171,233 @@ function App() {
                             type="monotone"
                             dataKey={sym}
                             stackId="1"
-                            stroke={tokenColors[sym] ?? '#67e8f9'}
-                            fill={tokenColors[sym] ?? '#67e8f9'}
-                            fillOpacity={0.22}
+                              stroke={tokenColors[sym] ?? chartColors.primary}
+                              fill={tokenColors[sym] ?? chartColors.primary}
+                              fillOpacity={0.3}
                             strokeWidth={2}
-                            dot={false}
                           />
                         ))}
                       </AreaChart>
                     </ResponsiveContainer>
                   </div>
-                </div>
+                  </ChartCard>
 
-                <div className="chartCard">
-                  <div className="chartTitle">
-                    <div className="label">Sponsorship Split</div>
-                    <div className="meta">fee payer != tx sender</div>
-                  </div>
-                  <div style={{ width: '100%', height: 260 }}>
-                    <ResponsiveContainer>
-                  <PieChart>
-                        <Tooltip
-                          {...tooltipCommon}
-                        />
-                    <Pie
-                      data={[
-                        { name: 'Sponsored', value: sponsored },
-                        { name: 'Self-paid', value: selfPaid },
-                      ]}
-                          dataKey="value"
-                          nameKey="name"
-                          innerRadius={55}
-                          outerRadius={95}
-                          paddingAngle={2}
-                      fill="#67e8f9"
-                    />
-                    <Legend />
-                  </PieChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-          </section>
+                  <ChartCard title="Sponsorship Split" description="Fee payer != tx sender">
+                    <div className="h-64">
+                      {sponsorshipLoading ? (
+                        <div className="flex h-full items-center justify-center">
+                          <div className="text-center">
+                            <Skeleton className="h-32 w-32 mx-auto rounded-full mb-4" />
+                            <Skeleton className="h-4 w-24 mx-auto" />
+                          </div>
+                        </div>
+                      ) : sponsored === 0 && selfPaid === 0 ? (
+                        <div className="flex h-full items-center justify-center text-slate-500 dark:text-slate-400">
+                          No sponsorship data available
+                        </div>
+                      ) : (
+                        <ResponsiveContainer>
+                          <PieChart>
+                            <Tooltip content={<CustomTooltip />} cursor={tooltipCursor} />
+                            <Pie
+                              data={[
+                                { name: 'Sponsored', value: sponsored },
+                                { name: 'Self-paid', value: selfPaid },
+                              ]}
+                              dataKey="value"
+                              nameKey="name"
+                              innerRadius={55}
+                              outerRadius={95}
+                              paddingAngle={2}
+                            >
+                              <Cell fill={chartColors.primary} />
+                              <Cell fill={chartColors.secondary} />
+                            </Pie>
+                            <Legend />
+                          </PieChart>
+                        </ResponsiveContainer>
+                      )}
+                    </div>
+                  </ChartCard>
 
-              <section className="charts">
-                <div className="chartCard">
-                  <div className="chartTitle">
-                    <div className="label">Compliance Events Over Time</div>
-                    <div className="meta">TIP-403 registry activity</div>
-                  </div>
-                  <div style={{ width: '100%', height: 260 }}>
+                  <ChartCard title="Compliance Events Over Time" description="TIP-403 registry activity">
+                    <div className="h-64">
                     <ResponsiveContainer>
                       <BarChart data={complianceSeries} margin={{ top: 8, right: 10, bottom: 0, left: 0 }}>
-                        <CartesianGrid stroke="rgba(255,255,255,0.08)" strokeDasharray="3 3" />
-                        <XAxis dataKey="t" stroke="rgba(255,255,255,0.55)" tick={{ fontSize: 12 }} />
-                        <YAxis stroke="rgba(255,255,255,0.55)" tick={{ fontSize: 12 }} />
-                        <Tooltip
-                          {...tooltipCommon}
-                        />
+                          <CartesianGrid strokeDasharray="3 3" className="stroke-slate-200 dark:stroke-slate-700" />
+                          <XAxis dataKey="t" tick={{ fontSize: 12 }} className="fill-slate-500 dark:fill-slate-400" />
+                          <YAxis tick={{ fontSize: 12 }} className="fill-slate-500 dark:fill-slate-400" />
+                          <Tooltip content={<CustomTooltip />} cursor={tooltipCursor} />
                         <Legend />
-                        <Bar dataKey="WhitelistUpdated" stackId="1" fill="#34d399" />
-                        <Bar dataKey="BlacklistUpdated" stackId="1" fill="#fb7185" />
-                        <Bar dataKey="PolicyAdminUpdated" stackId="1" fill="#c4b5fd" />
-                        <Bar dataKey="PolicyCreated" stackId="1" fill="#fbbf24" />
+                          <Bar dataKey="WhitelistUpdated" stackId="1" fill={chartColors.tertiary} />
+                          <Bar dataKey="BlacklistUpdated" stackId="1" fill={chartColors.danger} />
+                          <Bar dataKey="PolicyAdminUpdated" stackId="1" fill={chartColors.secondary} />
+                          <Bar dataKey="PolicyCreated" stackId="1" fill={chartColors.quaternary} />
                       </BarChart>
                     </ResponsiveContainer>
                   </div>
-                </div>
+                  </ChartCard>
 
-                <div className="chartCard">
-                  <div className="chartTitle">
-                    <div className="label">Top Compliance Updaters</div>
-                    <div className="meta">who changes policies most</div>
-                  </div>
-                  <div style={{ width: '100%', height: 260 }}>
-                    <ResponsiveContainer>
-                      <BarChart
-                        data={complianceStats.topUpdaters.map((u) => ({
-                          updater: short(u.updater),
-                          updaterFull: u.updater,
-                          count: u.count,
-                        }))}
-                      >
-                        <CartesianGrid stroke="rgba(255,255,255,0.08)" strokeDasharray="3 3" />
-                        <XAxis dataKey="updater" stroke="rgba(255,255,255,0.55)" tick={{ fontSize: 12 }} />
-                        <YAxis stroke="rgba(255,255,255,0.55)" tick={{ fontSize: 12 }} />
-                        <Tooltip
-                          formatter={(value, _name, props) => [value, (props.payload as any).updaterFull]}
-                          {...tooltipCommon}
-                        />
-                        <Bar dataKey="count" fill="#c4b5fd" radius={[8, 8, 0, 0]} />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-                </div>
-              </section>
+                  <ChartCard title="Top Compliance Updaters" description="Who changes policies most">
+                    <div className="h-64">
+                      {complianceStats.topUpdaters.length === 0 ? (
+                        <div className="flex h-full items-center justify-center text-slate-500 dark:text-slate-400">
+                          No compliance events in this period
+                        </div>
+                      ) : (
+                        <ResponsiveContainer>
+                          <BarChart
+                            data={complianceStats.topUpdaters.map((u) => ({
+                              updater: short(u.updater),
+                              updaterFull: u.updater,
+                              count: u.count,
+                            }))}
+                          >
+                            <CartesianGrid strokeDasharray="3 3" className="stroke-slate-200 dark:stroke-slate-700" />
+                            <XAxis dataKey="updater" tick={{ fontSize: 12 }} className="fill-slate-500 dark:fill-slate-400" />
+                            <YAxis tick={{ fontSize: 12 }} className="fill-slate-500 dark:fill-slate-400" />
+                            <Tooltip content={<CustomTooltip />} cursor={tooltipCursor} />
+                            <Bar dataKey="count" fill={chartColors.secondary} radius={[6, 6, 0, 0]} />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      )}
+                    </div>
+                  </ChartCard>
 
-              <section className="charts">
-                <div className="chartCard">
-                  <div className="chartTitle">
-                    <div className="label">Most Changed Policies</div>
-                    <div className="meta">policyId churn</div>
-                  </div>
-                  <div style={{ width: '100%', height: 260 }}>
-                    <ResponsiveContainer>
-                      <BarChart data={complianceStats.topPolicies}>
-                        <CartesianGrid stroke="rgba(255,255,255,0.08)" strokeDasharray="3 3" />
-                        <XAxis dataKey="policyId" stroke="rgba(255,255,255,0.55)" tick={{ fontSize: 12 }} />
-                        <YAxis stroke="rgba(255,255,255,0.55)" tick={{ fontSize: 12 }} />
-                        <Tooltip
-                          {...tooltipCommon}
-                        />
-                        <Bar dataKey="changes" fill="#fb7185" radius={[8, 8, 0, 0]} />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-                </div>
+                  <ChartCard title="Most Changed Policies" description="Policy ID churn">
+                    <div className="h-64">
+                      {complianceStats.topPolicies.length === 0 ? (
+                        <div className="flex h-full items-center justify-center text-slate-500 dark:text-slate-400">
+                          No policy changes in this period
+                        </div>
+                      ) : (
+                        <ResponsiveContainer>
+                          <BarChart data={complianceStats.topPolicies}>
+                            <CartesianGrid strokeDasharray="3 3" className="stroke-slate-200 dark:stroke-slate-700" />
+                            <XAxis dataKey="policyId" tick={{ fontSize: 12 }} className="fill-slate-500 dark:fill-slate-400" />
+                            <YAxis tick={{ fontSize: 12 }} className="fill-slate-500 dark:fill-slate-400" />
+                            <Tooltip content={<CustomTooltip />} cursor={tooltipCursor} />
+                            <Bar dataKey="changes" fill={chartColors.danger} radius={[6, 6, 0, 0]} />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      )}
+                    </div>
+                  </ChartCard>
 
-                <div className="chartCard">
-                  <div className="chartTitle">
-                    <div className="label">Fee AMM Total Liquidity</div>
-                    <div className="meta">sum of pool reserves by token</div>
-                  </div>
-                  <div style={{ width: '100%', height: 260 }}>
+                  <ChartCard title="Fee AMM Total Liquidity" description="Sum of pool reserves by token">
+                    <div className="h-64">
                     <ResponsiveContainer>
                       <BarChart data={feeAmmLiquidity}>
-                        <CartesianGrid stroke="rgba(255,255,255,0.08)" strokeDasharray="3 3" />
+                          <CartesianGrid strokeDasharray="3 3" className="stroke-slate-200 dark:stroke-slate-700" />
                         <XAxis
                           dataKey="token"
-                          stroke="rgba(255,255,255,0.55)"
                           tick={(p) => <TokenAxisTick {...(p as any)} tokenBySymbol={tokenBySymbol} />}
                         />
-                        <YAxis stroke="rgba(255,255,255,0.55)" tick={{ fontSize: 12 }} />
-                        <Tooltip
-                          {...tooltipCommon}
-                        />
-                        <Bar dataKey="value" fill="#34d399" radius={[8, 8, 0, 0]} />
+                          <YAxis tick={{ fontSize: 12 }} className="fill-slate-500 dark:fill-slate-400" />
+                          <Tooltip content={<CustomTooltip />} cursor={tooltipCursor} />
+                          <Bar dataKey="value" fill={chartColors.tertiary} radius={[6, 6, 0, 0]} />
                       </BarChart>
                     </ResponsiveContainer>
                   </div>
+                  </ChartCard>
+            </>
+          )}
                 </div>
-              </section>
-
             </>
           )}
 
-        </>
-      )}
+        {/* Data Explorer Tab - Loading Skeleton */}
+        {loading && activeTab === 'tables' && (
+          <div className="space-y-6">
+            <Card>
+              <CardHeader>
+                <Skeleton className="h-6 w-48" />
+              </CardHeader>
+              <CardContent>
+                <div className="flex flex-wrap gap-3">
+                  {[...Array(4)].map((_, i) => (
+                    <Skeleton key={i} className="h-10 w-32" />
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader>
+                <Skeleton className="h-6 w-48" />
+              </CardHeader>
+              <CardContent>
+                <Skeleton className="h-64 w-full" />
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader>
+                <Skeleton className="h-6 w-40" />
+              </CardHeader>
+              <CardContent>
+                <Skeleton className="h-64 w-full" />
+              </CardContent>
+            </Card>
+          </div>
+        )}
 
-      {data && tab === 'tables' && (
-        <>
-          <section className="card">
-            <div className="sectionTitle">Fee Paid (to FeeManager)</div>
-            <div className="chips">
+        {/* Data Explorer Tab */}
+        {data && !loading && activeTab === 'tables' && (
+          <div className="space-y-6">
+            {/* Fee Paid Summary */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Fee Paid (to FeeManager)</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="flex flex-wrap gap-3">
               {Object.entries(data.aggregates.feePaidByToken).map(([sym, amt]) => {
                 const token = data.tokens.find((t) => t.symbol === sym)
                 return (
-                  <div className="chip" key={sym}>
-                    {token ? <TokenBadge token={token} /> : <span>{sym}</span>}
-                    <span className="chipSep">:</span>
-                    <span className="mono chipValue">{amt}</span>
-                  </div>
+                      <Badge key={sym} variant="secondary" className="gap-2 px-3 py-2 text-sm">
+                        {token && <TokenBadge token={token} size="sm" />}
+                        <span className="font-mono">{amt}</span>
+                      </Badge>
                 )
               })}
             </div>
-          </section>
+              </CardContent>
+            </Card>
 
-          <section className="card">
-            <div className="sectionTitle">Recent Memo Transfers</div>
-            <div className="tableControls">
-              <div className="muted">{data.memoTransfers.length} rows</div>
-              <div className="pager">
-                <button className="pagerBtn" onClick={() => setTab('memo')}>
+            {/* Recent Memo Transfers */}
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between">
+                <CardTitle>Recent Memo Transfers</CardTitle>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-slate-500">{data.memoTransfers.length} rows</span>
+                  <Button variant="outline" size="sm" onClick={() => setActiveTab('memo')}>
                   Open Memo Explorer
-                </button>
-                <button className="pagerBtn" disabled={memoPager.page === 0} onClick={() => memoPager.setPage(memoPager.page - 1)}>
-                  Prev
-                </button>
-                <span className="mono">{memoPager.page + 1}/{memoPager.pages}</span>
-                <button
-                  className="pagerBtn"
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="mb-4 flex items-center justify-end gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={memoPager.page === 0}
+                    onClick={() => memoPager.setPage(memoPager.page - 1)}
+                  >
+                    Previous
+                  </Button>
+                  <span className="text-sm font-medium">
+                    {memoPager.page + 1} / {memoPager.pages}
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
                   disabled={memoPager.page + 1 >= memoPager.pages}
                   onClick={() => memoPager.setPage(memoPager.page + 1)}
                 >
                   Next
-                </button>
-                <select value={memoPager.pageSize} onChange={(e) => memoPager.setPageSize(Number(e.target.value))}>
-                  <option value={25}>25</option>
-                  <option value={50}>50</option>
-                  <option value={100}>100</option>
-                </select>
+                  </Button>
               </div>
-            </div>
-            <table>
+                <div className="overflow-x-auto">
+                  <table className="data-table">
               <thead>
                 <tr>
                   <th>Time</th>
@@ -1408,22 +1413,26 @@ function App() {
                 {data.memoTransfers.slice(memoPager.start, memoPager.end).map((t) => (
                   <tr
                     key={`${t.txHash}:${t.memo}`}
-                    className="rowClickable"
+                          className="cursor-pointer"
                     onClick={() => {
-                      setTab('memo')
+                            setActiveTab('memo')
                       void runMemoSearch(t.memo)
                     }}
                   >
-                    <td className="mono">{formatTs(t.timestamp)}</td>
-                    <td>
-                      <TokenBadge token={t.token} />
-                    </td>
-                    <td className="mono">{t.amount}</td>
-                    <td className="mono">{short(t.from)}</td>
-                    <td className="mono">{short(t.to)}</td>
-                    <td className="mono">{short(t.memo)}</td>
-                    <td className="mono">
-                      <a href={`https://explore.tempo.xyz/tx/${t.txHash}`} target="_blank" rel="noreferrer">
+                          <td className="font-mono text-xs">{formatTs(t.timestamp)}</td>
+                          <td><TokenBadge token={t.token} size="sm" /></td>
+                          <td className="font-mono">{t.amount}</td>
+                          <td className="font-mono text-xs">{short(t.from)}</td>
+                          <td className="font-mono text-xs">{short(t.to)}</td>
+                          <td className="font-mono text-xs">{short(t.memo)}</td>
+                          <td>
+                            <a
+                              href={`https://explore.tempo.xyz/tx/${t.txHash}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="font-mono text-xs text-primary-600 hover:underline dark:text-primary-400"
+                              onClick={(e) => e.stopPropagation()}
+                            >
                         {short(t.txHash)}
                       </a>
                     </td>
@@ -1431,32 +1440,40 @@ function App() {
                 ))}
               </tbody>
             </table>
-          </section>
+                </div>
+              </CardContent>
+            </Card>
 
-          <section className="card">
-            <div className="sectionTitle">Recent Compliance Events (TIP-403)</div>
-            <div className="tableControls">
-              <div className="muted">{data.compliance.length} rows</div>
-              <div className="pager">
-                <button className="pagerBtn" disabled={compliancePager.page === 0} onClick={() => compliancePager.setPage(compliancePager.page - 1)}>
-                  Prev
-                </button>
-                <span className="mono">{compliancePager.page + 1}/{compliancePager.pages}</span>
-                <button
-                  className="pagerBtn"
+            {/* Recent Compliance Events */}
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between">
+                <CardTitle>Recent Compliance Events (TIP-403)</CardTitle>
+                <span className="text-sm text-slate-500">{data.compliance.length} rows</span>
+              </CardHeader>
+              <CardContent>
+                <div className="mb-4 flex items-center justify-end gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={compliancePager.page === 0}
+                    onClick={() => compliancePager.setPage(compliancePager.page - 1)}
+                  >
+                    Previous
+                  </Button>
+                  <span className="text-sm font-medium">
+                    {compliancePager.page + 1} / {compliancePager.pages}
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
                   disabled={compliancePager.page + 1 >= compliancePager.pages}
                   onClick={() => compliancePager.setPage(compliancePager.page + 1)}
                 >
                   Next
-                </button>
-                <select value={compliancePager.pageSize} onChange={(e) => compliancePager.setPageSize(Number(e.target.value))}>
-                  <option value={25}>25</option>
-                  <option value={50}>50</option>
-                  <option value={100}>100</option>
-                </select>
+                  </Button>
               </div>
-            </div>
-            <table>
+                <div className="overflow-x-auto">
+                  <table className="data-table">
               <thead>
                 <tr>
                   <th>Time</th>
@@ -1467,12 +1484,27 @@ function App() {
               </thead>
               <tbody>
                 {data.compliance.slice(compliancePager.start, compliancePager.end).map((e) => (
-                  <tr key={`${e.txHash}:${e.type}:${e.policyId}`}> 
-                    <td className="mono">{formatTs(e.timestamp)}</td>
-                    <td>{e.type}</td>
-                    <td className="mono">{e.policyId}</td>
-                    <td className="mono">
-                      <a href={`https://explore.tempo.xyz/tx/${e.txHash}`} target="_blank" rel="noreferrer">
+                  <tr key={`${e.txHash}:${e.type}:${e.policyId}`}>
+                          <td className="font-mono text-xs">{formatTs(e.timestamp)}</td>
+                          <td>
+                            <Badge
+                              variant={
+                                e.type === 'WhitelistUpdated' ? 'success' :
+                                e.type === 'BlacklistUpdated' ? 'danger' :
+                                'secondary'
+                              }
+                            >
+                              {e.type}
+                            </Badge>
+                          </td>
+                          <td className="font-mono text-xs">{e.policyId}</td>
+                          <td>
+                            <a
+                              href={`https://explore.tempo.xyz/tx/${e.txHash}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="font-mono text-xs text-primary-600 hover:underline dark:text-primary-400"
+                            >
                         {short(e.txHash)}
                       </a>
                     </td>
@@ -1480,32 +1512,40 @@ function App() {
                 ))}
               </tbody>
             </table>
-          </section>
+                </div>
+              </CardContent>
+            </Card>
 
-          <section className="card">
-            <div className="sectionTitle">Fee AMM Pools</div>
-            <div className="tableControls">
-              <div className="muted">{data.feeAmm.pools.length} rows</div>
-              <div className="pager">
-                <button className="pagerBtn" disabled={poolsPager.page === 0} onClick={() => poolsPager.setPage(poolsPager.page - 1)}>
-                  Prev
-                </button>
-                <span className="mono">{poolsPager.page + 1}/{poolsPager.pages}</span>
-                <button
-                  className="pagerBtn"
+            {/* Fee AMM Pools */}
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between">
+                <CardTitle>Fee AMM Pools</CardTitle>
+                <span className="text-sm text-slate-500">{data.feeAmm.pools.length} pools</span>
+              </CardHeader>
+              <CardContent>
+                <div className="mb-4 flex items-center justify-end gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={poolsPager.page === 0}
+                    onClick={() => poolsPager.setPage(poolsPager.page - 1)}
+                  >
+                    Previous
+                  </Button>
+                  <span className="text-sm font-medium">
+                    {poolsPager.page + 1} / {poolsPager.pages}
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
                   disabled={poolsPager.page + 1 >= poolsPager.pages}
                   onClick={() => poolsPager.setPage(poolsPager.page + 1)}
                 >
                   Next
-                </button>
-                <select value={poolsPager.pageSize} onChange={(e) => poolsPager.setPageSize(Number(e.target.value))}>
-                  <option value={25}>25</option>
-                  <option value={50}>50</option>
-                  <option value={100}>100</option>
-                </select>
+                  </Button>
               </div>
-            </div>
-            <table>
+                <div className="overflow-x-auto">
+                  <table className="data-table">
               <thead>
                 <tr>
                   <th>User Token</th>
@@ -1517,23 +1557,22 @@ function App() {
               <tbody>
                 {data.feeAmm.pools.slice(poolsPager.start, poolsPager.end).map((p, idx) => (
                   <tr key={`${p.userToken.symbol}:${p.validatorToken.symbol}:${idx}`}>
-                    <td>
-                      <TokenBadge token={p.userToken} />
-                    </td>
-                    <td>
-                      <TokenBadge token={p.validatorToken} />
-                    </td>
-                    <td className="mono">{p.reserveUserToken}</td>
-                    <td className="mono">{p.reserveValidatorToken}</td>
+                          <td><TokenBadge token={p.userToken} /></td>
+                          <td><TokenBadge token={p.validatorToken} /></td>
+                          <td className="font-mono">{p.reserveUserToken}</td>
+                          <td className="font-mono">{p.reserveValidatorToken}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
-          </section>
-        </>
-      )}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
+      </main>
+
+      <Footer />
     </div>
   )
 }
-
-export default App

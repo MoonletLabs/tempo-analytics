@@ -1,51 +1,151 @@
+@import 'tailwindcss';
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+/* Enable class-based dark mode */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Custom theme variables */
+@theme {
+  --color-primary-50: #eff6ff;
+  --color-primary-100: #dbeafe;
+  --color-primary-200: #bfdbfe;
+  --color-primary-300: #93c5fd;
+  --color-primary-400: #60a5fa;
+  --color-primary-500: #3b82f6;
+  --color-primary-600: #2563eb;
+  --color-primary-700: #1d4ed8;
+  --color-primary-800: #1e40af;
+  --color-primary-900: #1e3a8a;
+  --color-primary-950: #172554;
+
+  --color-accent-cyan: #67e8f9;
+  --color-accent-emerald: #34d399;
+  --color-accent-amber: #fbbf24;
+  --color-accent-violet: #c4b5fd;
+  --color-accent-rose: #fb7185;
+
+  --font-family-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-family-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+  --radius-2xl: 1rem;
+  --radius-3xl: 1.5rem;
+}
+
+/* Base styles */
 :root {
-  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
-    Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+  font-family: var(--font-family-sans);
   line-height: 1.5;
   font-weight: 400;
-
-  color-scheme: dark;
-  color: rgba(255, 255, 255, 0.92);
-  background-color: #0b0f14;
-
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-a {
-  font-weight: 500;
-  color: #67e8f9;
-  text-decoration: inherit;
-}
-a:hover {
-  color: #a5f3fc;
-}
-
 body {
-  margin: 0;
-  min-width: 320px;
+  @apply bg-gradient-to-br from-slate-50 via-white to-slate-100 text-slate-900;
   min-height: 100vh;
-  background:
-    radial-gradient(1100px 700px at 12% 10%, rgba(255, 192, 120, 0.14), transparent 62%),
-    radial-gradient(1000px 600px at 88% 0%, rgba(70, 180, 170, 0.15), transparent 60%),
-    radial-gradient(900px 700px at 60% 95%, rgba(140, 110, 220, 0.12), transparent 60%),
-    linear-gradient(180deg, #0b0f14 0%, #070a0e 100%);
 }
 
-h1 {
-  font-size: 3.2em;
-  line-height: 1.1;
+.dark body,
+body.dark {
+  @apply bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-white;
 }
 
-button {
-  border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  padding: 0.6em 1.2em;
-  font-size: 1em;
-  font-weight: 500;
-  font-family: inherit;
-  background-color: rgba(255, 255, 255, 0.06);
-  cursor: pointer;
+html.dark {
+  color-scheme: dark;
+}
+
+html.dark body {
+  @apply bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-white;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply rounded-full bg-slate-300;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  @apply bg-slate-700;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-slate-400;
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  @apply bg-slate-600;
+}
+
+/* Gradient text */
+.gradient-text {
+  @apply bg-gradient-to-r from-primary-600 to-primary-400 bg-clip-text text-transparent;
+}
+
+/* Glass effect */
+.glass {
+  @apply bg-white/70 backdrop-blur-xl;
+}
+
+.dark .glass {
+  @apply bg-slate-800/70;
+}
+
+/* Table styles */
+.data-table {
+  @apply w-full border-collapse;
+}
+
+.data-table th {
+  @apply border-b border-slate-200 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500;
+}
+
+.dark .data-table th {
+  @apply border-slate-700 text-slate-400;
+}
+
+.data-table td {
+  @apply border-b border-slate-100 px-4 py-3 text-sm;
+}
+
+.dark .data-table td {
+  @apply border-slate-800;
+}
+
+.data-table tr:last-child td {
+  @apply border-b-0;
+}
+
+.data-table tbody tr {
+  @apply transition-colors;
+}
+
+.data-table tbody tr:hover {
+  @apply bg-slate-50;
+}
+
+.dark .data-table tbody tr:hover {
+  @apply bg-slate-800/50;
+}
+
+/* Recharts overrides */
+.recharts-cartesian-grid line {
+  stroke: #e2e8f0;
+}
+
+.dark .recharts-cartesian-grid line {
+  stroke: #334155;
+}
+
+.recharts-tooltip-wrapper {
+  outline: none;
 }

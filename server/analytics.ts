@@ -136,7 +136,7 @@ async function attachTimestamps<T extends { blockNumber: number }>(
   return applyApproxTimestamps(items, model)
 }
 
-export async function getMemoTransfers(windowSeconds: number, memo?: Hex) {
+async function fetchMemoTransfersRpc(windowSeconds: number, memo?: Hex) {
   const [{ tokens }, range] = await Promise.all([
     fetchTokenlist(),
     blockRangeForWindow(windowSeconds),
@@ -181,7 +181,7 @@ export async function getMemoTransfers(windowSeconds: number, memo?: Hex) {
   return attachTimestamps(transfers.slice(0, MAX_EVENTS))
 }
 
-export async function getFeePayments(windowSeconds: number) {
+async function fetchFeePaymentsRpc(windowSeconds: number) {
   const [{ tokens }, range] = await Promise.all([
     fetchTokenlist(),
     blockRangeForWindow(windowSeconds),
@@ -192,10 +192,7 @@ export async function getFeePayments(windowSeconds: number) {
   )
   const tokenAddresses = tokens.map((t) => t.address)
 
-  const fees: Omit<FeePayment, 'timestamp'>[] = []
-
-  // Fee payments appear as TIP-20 Transfer(to=FeeManager)
-  const logs = await getLogsChunked({
+  let logs = await getLogsChunked({
     fromBlock: range.fromBlock,
     toBlock: range.toBlock,
     fetch: async ({ fromBlock, toBlock }) =>
@@ -208,6 +205,22 @@ export async function getFeePayments(windowSeconds: number) {
       }),
   })
 
+  if (!logs.length) {
+    logs = await getLogsChunked({
+      fromBlock: range.fromBlock,
+      toBlock: range.toBlock,
+      fetch: async ({ fromBlock, toBlock }) =>
+        publicClient.getLogs({
+          address: tokenAddresses,
+          event: tip20.transferWithMemo,
+          args: { to: env.contracts.feeManager },
+          fromBlock,
+          toBlock,
+        }),
+    })
+  }
+
+  const fees: Omit<FeePayment, 'timestamp'>[] = []
   for (const l of logs) {
     const token = tokenByAddress.get(l.address.toLowerCase())
     if (!token) continue
@@ -222,32 +235,10 @@ export async function getFeePayments(windowSeconds: number) {
   }
 
   fees.sort((a, b) => b.blockNumber - a.blockNumber)
-
-  const withTs = await attachTimestamps(fees.slice(0, MAX_EVENTS))
-
-  // Enrich with tx sender to estimate sponsorship rate.
-  // (Fee payer is the account that transferred TIP-20 fees to FeeManager)
-  const uniqueTx = [...new Set(withTs.map((f) => f.txHash))].slice(0, 60)
-  const senderByTx = new Map<string, Address>()
-  await Promise.all(
-    uniqueTx.map(async (hash) => {
-      try {
-        const tx = await withRpcRetry(() => publicClient.getTransaction({ hash }))
-        senderByTx.set(hash, tx.from)
-      } catch {
-        // ignore
-      }
-    }),
-  )
-
-  return withTs.map((f) => {
-    const sender = senderByTx.get(f.txHash)
-    const sponsored = sender ? sender.toLowerCase() !== f.payer.toLowerCase() : undefined
-    return { ...f, sender, sponsored }
-  })
+  return attachTimestamps(fees.slice(0, MAX_EVENTS))
 }
 
-export async function getTotalTransfers(windowSeconds: number) {
+async function fetchTotalTransfersRpc(windowSeconds: number) {
   const [{ tokens }, range] = await Promise.all([
     fetchTokenlist(),
     blockRangeForWindow(windowSeconds),
@@ -255,7 +246,7 @@ export async function getTotalTransfers(windowSeconds: number) {
 
   const tokenAddresses = tokens.map((t) => t.address)
 
-  const logs = await getLogsChunked({
+  let logs = await getLogsChunked({
     fromBlock: range.fromBlock,
     toBlock: range.toBlock,
     fetch: async ({ fromBlock, toBlock }) =>
@@ -267,7 +258,34 @@ export async function getTotalTransfers(windowSeconds: number) {
       }),
   })
 
+  if (!logs.length) {
+    logs = await getLogsChunked({
+      fromBlock: range.fromBlock,
+      toBlock: range.toBlock,
+      fetch: async ({ fromBlock, toBlock }) =>
+        publicClient.getLogs({
+          address: tokenAddresses,
+          event: tip20.transferWithMemo,
+          fromBlock,
+          toBlock,
+        }),
+    })
+  }
+
   return logs.slice(0, MAX_EVENTS).length
+}
+
+
+export async function getMemoTransfers(windowSeconds: number, memo?: Hex) {
+  return fetchMemoTransfersRpc(windowSeconds, memo)
+}
+
+export async function getFeePayments(windowSeconds: number) {
+  return fetchFeePaymentsRpc(windowSeconds)
+}
+
+export async function getTotalTransfers(windowSeconds: number) {
+  return fetchTotalTransfersRpc(windowSeconds)
 }
 
 export async function getFeeAmmSummary(): Promise<FeeAmmSummary> {
@@ -482,9 +500,9 @@ export async function buildDashboard(windowSeconds: number): Promise<DashboardRe
 
   const uniqueMemos = new Set(memoTransfers.map((t) => t.memo.toLowerCase())).size
   const uniqueFeePayers = new Set(fees.map((f) => f.payer.toLowerCase())).size
-  const sponsoredFeePayments = fees.filter((f) => f.sponsored === true).length
-  const sponsoredDenom = fees.filter((f) => f.sponsored !== undefined).length
-  const sponsoredFeePaymentRate = sponsoredDenom > 0 ? sponsoredFeePayments / sponsoredDenom : 0
+  // Sponsorship data removed for speed - would require individual tx lookups
+  const sponsoredFeePayments = 0
+  const sponsoredFeePaymentRate = 0
 
   const uniqueComplianceUpdaters = new Set(compliance.map((e) => e.updater.toLowerCase())).size
   const uniquePolicyIds = new Set(compliance.map((e) => e.policyId)).size
@@ -527,4 +545,69 @@ export async function buildDashboard(windowSeconds: number): Promise<DashboardRe
 
 export function normalizeMemoParam(memo: string): Hex {
   return parseBytes32Memo(memo)
+}
+
+// Separate endpoint for sponsorship calculation (slow - requires individual tx lookups)
+export type SponsorshipData = {
+  totalFeePayments: number
+  sponsoredCount: number
+  selfPaidCount: number
+  unknownCount: number
+  sponsorshipRate: number
+}
+
+export async function getSponsorshipData(windowSeconds: number): Promise<SponsorshipData> {
+  const cacheKey = `sponsorship:${windowSeconds}`
+  const cached = cacheGet<SponsorshipData>(cacheKey)
+  if (cached) return cached
+
+  const fees = await getFeePayments(windowSeconds)
+
+  // Fetch transaction senders for sponsorship calculation
+  const uniqueTxHashes = [...new Set(fees.map((f) => f.txHash))].slice(0, 100) // Limit to 100 tx lookups
+  const senderByTx = new Map<string, Address>()
+
+  // Batch fetch transactions
+  await Promise.all(
+    uniqueTxHashes.map(async (hash) => {
+      try {
+        const tx = await withRpcRetry(() => publicClient.getTransaction({ hash }))
+        senderByTx.set(hash, tx.from)
+      } catch {
+        // ignore failed lookups
+      }
+    }),
+  )
+
+  let sponsoredCount = 0
+  let selfPaidCount = 0
+  let unknownCount = 0
+
+  for (const fee of fees) {
+    const sender = senderByTx.get(fee.txHash)
+    if (!sender) {
+      unknownCount++
+      continue
+    }
+    const isSponsored = sender.toLowerCase() !== fee.payer.toLowerCase()
+    if (isSponsored) {
+      sponsoredCount++
+    } else {
+      selfPaidCount++
+    }
+  }
+
+  const knownCount = sponsoredCount + selfPaidCount
+  const sponsorshipRate = knownCount > 0 ? sponsoredCount / knownCount : 0
+
+  const result: SponsorshipData = {
+    totalFeePayments: fees.length,
+    sponsoredCount,
+    selfPaidCount,
+    unknownCount,
+    sponsorshipRate,
+  }
+
+  cacheSet(cacheKey, result, 2 * 60 * 1000)
+  return result
 }

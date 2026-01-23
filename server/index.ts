@@ -2,9 +2,8 @@ import cors from 'cors'
 import express from 'express'
 import path from 'node:path'
 
-import { buildDashboard, getComplianceEvents, getFeePayments, getMemoTransfers, normalizeMemoParam } from './analytics'
+import { buildDashboard, getComplianceEvents, getFeePayments, getMemoTransfers, normalizeMemoParam, getSponsorshipData } from './analytics'
 import { env } from './env'
-import { parseWindowSeconds } from './timeWindow'
 import { publicClient } from './rpc'
 
 const app = express()
@@ -12,9 +11,12 @@ app.disable('x-powered-by')
 
 app.use(cors())
 
-// Light caching for API responses (public RPC is slow/rate-limited)
+// Fixed 1-hour window for fast queries (no caching needed)
+const DASHBOARD_WINDOW = 3600
+
+// Light caching for API responses
 app.use('/api', (_req, res, next) => {
-  res.setHeader('Cache-Control', 'public, max-age=30')
+  res.setHeader('Cache-Control', 'public, max-age=10')
   next()
 })
 
@@ -32,10 +34,12 @@ app.get('/api/health', async (_req, res) => {
   }
 })
 
-app.get('/api/dashboard', async (req, res) => {
+
+app.get('/api/dashboard', async (_req, res) => {
   try {
-    const windowSeconds = parseWindowSeconds(req.query.window as string | undefined)
-    const data = await buildDashboard(windowSeconds)
+    const start = Date.now()
+    const data = await buildDashboard(DASHBOARD_WINDOW)
+    console.log(`[api] Dashboard built in ${Date.now() - start}ms`)
     res.json(data)
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : String(err) })
@@ -44,30 +48,39 @@ app.get('/api/dashboard', async (req, res) => {
 
 app.get('/api/memo/:memo', async (req, res) => {
   try {
-    const windowSeconds = parseWindowSeconds(req.query.window as string | undefined)
     const memo = normalizeMemoParam(req.params.memo)
-    const data = await getMemoTransfers(windowSeconds, memo)
-    res.json({ windowSeconds, memo, transfers: data })
+    const data = await getMemoTransfers(DASHBOARD_WINDOW, memo)
+    res.json({ windowSeconds: DASHBOARD_WINDOW, memo, transfers: data })
   } catch (err) {
     res.status(400).json({ error: err instanceof Error ? err.message : String(err) })
   }
 })
 
-app.get('/api/fees', async (req, res) => {
+app.get('/api/fees', async (_req, res) => {
   try {
-    const windowSeconds = parseWindowSeconds(req.query.window as string | undefined)
-    const data = await getFeePayments(windowSeconds)
-    res.json({ windowSeconds, feeManager: env.contracts.feeManager, payments: data })
+    const data = await getFeePayments(DASHBOARD_WINDOW)
+    res.json({ windowSeconds: DASHBOARD_WINDOW, feeManager: env.contracts.feeManager, payments: data })
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : String(err) })
   }
 })
 
-app.get('/api/compliance', async (req, res) => {
+app.get('/api/compliance', async (_req, res) => {
   try {
-    const windowSeconds = parseWindowSeconds(req.query.window as string | undefined)
-    const data = await getComplianceEvents(windowSeconds)
-    res.json({ windowSeconds, registry: env.contracts.tip403Registry, events: data })
+    const data = await getComplianceEvents(DASHBOARD_WINDOW)
+    res.json({ windowSeconds: DASHBOARD_WINDOW, registry: env.contracts.tip403Registry, events: data })
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) })
+  }
+})
+
+// Separate endpoint for sponsorship data (slow - requires individual tx lookups)
+app.get('/api/sponsorship', async (_req, res) => {
+  try {
+    const start = Date.now()
+    const data = await getSponsorshipData(DASHBOARD_WINDOW)
+    console.log(`[api] Sponsorship data built in ${Date.now() - start}ms`)
+    res.json(data)
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : String(err) })
   }
