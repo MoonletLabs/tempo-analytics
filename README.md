@@ -1,5 +1,40 @@
 # React + TypeScript + Vite
 
+Tempo analytics dashboard backed by Tempo RPC.
+
+## Local dev
+
+```bash
+yarn install
+yarn dev
+```
+
+If port `8787` is busy:
+
+```bash
+PORT=8788 yarn dev
+```
+
+## Docker (recommended on servers)
+
+```bash
+docker compose up --build -d
+```
+
+Open:
+
+- http://localhost:8790
+
+Config examples:
+
+```bash
+# Use your own Tempo RPC (recommended: via SSH tunnel)
+TEMPO_RPC_URL=http://127.0.0.1:8545 docker compose up --build -d
+
+# Scan more blocks (only recommended on your own RPC)
+TEMPO_MAX_SCAN_BLOCKS=100000 docker compose up --build -d
+```
+
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
 Currently, two official plugins are available:
