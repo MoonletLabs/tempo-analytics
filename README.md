@@ -21,6 +21,8 @@ PORT=8788 yarn dev
 docker compose up --build -d
 ```
 
+`dist/` and `dist-server/` are generated inside the Docker build (and are gitignored).
+
 Open:
 
 - http://localhost:8790

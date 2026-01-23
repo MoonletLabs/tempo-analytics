@@ -2,10 +2,10 @@ import type { Address } from 'viem'
 
 export const env = {
   port: Number.parseInt(process.env.PORT ?? '8787', 10),
-  rpcUrl: process.env.TEMPO_RPC_URL ?? 'https://rpc.moderato.tempo.xyz',
+  rpcUrl: process.env.TEMPO_RPC_URL ?? 'https://public.moonlet.cloud/tempo',
   tokenlistUrl:
     process.env.TEMPO_TOKENLIST_URL ?? 'https://tokenlist.tempo.xyz/list/42431',
-  // Public RPC can be rate limited; cap the scanned block window by default.
+  // Cap scanned block window by default.
   maxScanBlocks: BigInt(process.env.TEMPO_MAX_SCAN_BLOCKS ?? '20000'),
   chainId: 42431,
   contracts: {

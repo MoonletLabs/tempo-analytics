@@ -479,7 +479,7 @@ function App() {
         <div>
           <div className="title">Tempo Analytics</div>
           <div className="subtitle">
-            Testnet (Moderato) · chainId 42431 · public RPC
+            Testnet (Moderato) · chainId 42431 · Moonlet RPC
           </div>
         </div>
 
@@ -512,7 +512,7 @@ function App() {
           </a>
         </div>
         <div className="hint">
-          Tip: memo must be a 32-byte hex string (0x + 64 hex). Public RPC is rate limited; analytics scans are capped by block count.
+          Tip: memo must be a 32-byte hex string (0x + 64 hex).
         </div>
       </section>
 
