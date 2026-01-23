@@ -101,6 +101,7 @@ export type DashboardResponse = {
   fees: FeePayment[]
   compliance: ComplianceEvent[]
   aggregates: {
+    totalTransferCount: number
     memoTransferCount: number
     memoTransferVolumeByToken: Record<string, string>
     feePaidByToken: Record<string, string>
@@ -244,6 +245,29 @@ export async function getFeePayments(windowSeconds: number) {
     const sponsored = sender ? sender.toLowerCase() !== f.payer.toLowerCase() : undefined
     return { ...f, sender, sponsored }
   })
+}
+
+export async function getTotalTransfers(windowSeconds: number) {
+  const [{ tokens }, range] = await Promise.all([
+    fetchTokenlist(),
+    blockRangeForWindow(windowSeconds),
+  ])
+
+  const tokenAddresses = tokens.map((t) => t.address)
+
+  const logs = await getLogsChunked({
+    fromBlock: range.fromBlock,
+    toBlock: range.toBlock,
+    fetch: async ({ fromBlock, toBlock }) =>
+      publicClient.getLogs({
+        address: tokenAddresses,
+        event: tip20.transfer,
+        fromBlock,
+        toBlock,
+      }),
+  })
+
+  return logs.slice(0, MAX_EVENTS).length
 }
 
 export async function getFeeAmmSummary(): Promise<FeeAmmSummary> {
@@ -423,13 +447,14 @@ export async function buildDashboard(windowSeconds: number): Promise<DashboardRe
   const cached = cacheGet<DashboardResponse>(cacheKey)
   if (cached) return cached
 
-  const [tokenlist, range, memoTransfers, fees, compliance, feeAmm] = await Promise.all([
+  const [tokenlist, range, memoTransfers, fees, compliance, feeAmm, totalTransferCount] = await Promise.all([
     fetchTokenlist(),
     blockRangeForWindow(windowSeconds),
     getMemoTransfers(windowSeconds),
     getFeePayments(windowSeconds),
     getComplianceEvents(windowSeconds),
     getFeeAmmSummary(),
+    getTotalTransfers(windowSeconds),
   ])
 
   const memoTransferVolumeByToken: Record<string, bigint> = {}
@@ -480,6 +505,7 @@ export async function buildDashboard(windowSeconds: number): Promise<DashboardRe
     fees,
     compliance,
     aggregates: {
+      totalTransferCount,
       memoTransferCount: memoTransfers.length,
       memoTransferVolumeByToken: memoTransferVolumeByTokenFormatted,
       feePaidByToken: feePaidByTokenFormatted,

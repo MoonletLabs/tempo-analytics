@@ -77,6 +77,7 @@ type DashboardResponse = {
   fees: FeePayment[]
   compliance: ComplianceEvent[]
   aggregates: {
+    totalTransferCount: number
     memoTransferCount: number
     memoTransferVolumeByToken: Record<string, string>
     feePaidByToken: Record<string, string>
@@ -201,6 +202,19 @@ function toNumber(v: string): number {
   return Number.isFinite(n) ? n : 0
 }
 
+function formatDelta(current: number, previous: number, suffix = ''): string {
+  const delta = current - previous
+  const sign = delta > 0 ? '+' : ''
+  const value = Math.abs(delta) >= 1000 ? delta.toFixed(0) : delta.toFixed(2)
+  return `${sign}${value}${suffix}`
+}
+
+function formatDeltaPct(current: number, previous: number): string {
+  const delta = current - previous
+  const sign = delta > 0 ? '+' : ''
+  return `${sign}${delta.toFixed(1)}%`
+}
+
 function pickBucketSizeSeconds(windowSeconds: number): number {
   // Aim for <= ~120 points so 7d/30d stays responsive.
   const targetPoints = 120
@@ -282,6 +296,35 @@ function buildTopFeePayers(fees: FeePayment[]) {
     top: all.slice(0, 12),
     concentrationTop10: total > 0 ? (top10 / total) * 100 : 0,
   }
+}
+
+function buildTopCounterparties(transfers: MemoTransfer[]) {
+  const bySender = new Map<string, { address: string; count: number; volume: number }>()
+  const byReceiver = new Map<string, { address: string; count: number; volume: number }>()
+  for (const t of transfers) {
+    const amt = toNumber(t.amount)
+    const s = bySender.get(t.from) ?? { address: t.from, count: 0, volume: 0 }
+    s.count += 1
+    s.volume += amt
+    bySender.set(t.from, s)
+
+    const r = byReceiver.get(t.to) ?? { address: t.to, count: 0, volume: 0 }
+    r.count += 1
+    r.volume += amt
+    byReceiver.set(t.to, r)
+  }
+
+  const topSenders = [...bySender.values()].sort((a, b) => b.volume - a.volume).slice(0, 10)
+  const topReceivers = [...byReceiver.values()].sort((a, b) => b.volume - a.volume).slice(0, 10)
+  return { topSenders, topReceivers }
+}
+
+function buildTokenDominance(map: Record<string, string>) {
+  const rows = Object.entries(map).map(([token, value]) => ({ token, value: toNumber(value) }))
+  const total = rows.reduce((s, x) => s + x.value, 0)
+  return rows
+    .map((r) => ({ ...r, share: total > 0 ? (r.value / total) * 100 : 0 }))
+    .sort((a, b) => b.value - a.value)
 }
 
 function bucketSumByToken(
@@ -418,8 +461,13 @@ function usePagination(total: number, initialPageSize = 25) {
 
 function App() {
   const [window, setWindow] = useState<'1h' | '6h' | '24h' | '7d'>('1h')
+  const [tab, setTab] = useState<'analytics' | 'memo'>('analytics')
   const [memoQuery, setMemoQuery] = useState('')
+  const [memoResults, setMemoResults] = useState<MemoTransfer[]>([])
+  const [memoLoading, setMemoLoading] = useState(false)
+  const [memoError, setMemoError] = useState<string | null>(null)
   const [data, setData] = useState<DashboardResponse | null>(null)
+  const [prevData, setPrevData] = useState<DashboardResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [showingCached, setShowingCached] = useState(false)
@@ -431,6 +479,7 @@ function App() {
       if (cachedRaw) {
         const cached = JSON.parse(cachedRaw) as DashboardResponse
         setData(cached)
+        setPrevData(cached)
         setShowingCached(true)
         setLoading(false)
       } else {
@@ -447,6 +496,7 @@ function App() {
       const res = await fetch(`/api/dashboard?window=${window}`)
       if (!res.ok) throw new Error(`API error: ${res.status} ${res.statusText}`)
       const json = (await res.json()) as DashboardResponse
+      setPrevData(data ?? prevData)
       setData(json)
       setShowingCached(false)
       try {
@@ -466,9 +516,29 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [window])
 
+  async function runMemoSearch(memoOverride?: string) {
+    const query = memoOverride ?? memoQuery
+    if (query.length !== 66) return
+    if (memoOverride) setMemoQuery(query)
+    setMemoLoading(true)
+    setMemoError(null)
+    try {
+      const res = await fetch(`/api/memo/${query}?window=${window}`)
+      if (!res.ok) throw new Error(`API error: ${res.status} ${res.statusText}`)
+      const json = (await res.json()) as { transfers: MemoTransfer[] }
+      setMemoResults(json.transfers ?? [])
+    } catch (e) {
+      setMemoError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setMemoLoading(false)
+    }
+  }
+
   const memoStats = data ? buildTopMemoData(data.memoTransfers) : null
   const feePayerStats = data ? buildTopFeePayers(data.fees) : null
   const complianceStats = data ? buildTopUpdaters(data.compliance) : null
+  const counterpartyStats = data ? buildTopCounterparties(data.memoTransfers) : null
+  const tokenDominance = data ? buildTokenDominance(data.aggregates.memoTransferVolumeByToken) : []
 
   const feesSeries = data ? bucketSumByToken(data.fees, data.windowSeconds) : []
   const complianceSeries = data ? bucketComplianceByType(data.compliance, data.windowSeconds) : []
@@ -478,6 +548,21 @@ function App() {
   const selfPaid = Math.max(0, sponsorKnown - sponsored)
 
   const feeAmmLiquidity = data ? buildTokenBarData(data.feeAmm.totalLiquidityByToken) : []
+
+  const liquidityRows = data
+    ? (data.tokens ?? []).map((t) => {
+        const liquidity = toNumber(data.feeAmm.totalLiquidityByToken[t.symbol] ?? '0')
+        const demand = toNumber(data.aggregates.feePaidByToken[t.symbol] ?? '0')
+        return {
+          token: t.symbol,
+          liquidity,
+          demand,
+          low: demand > liquidity && (liquidity > 0 || demand > 0),
+        }
+      })
+    : []
+
+  const liquidityAlerts = liquidityRows.filter((x) => x.low)
 
   const tokenBySymbol = new Map(
     (data?.tokens ?? []).map((t) => [t.symbol, { address: t.address, symbol: t.symbol, logoURI: t.logoURI }]),
@@ -505,6 +590,19 @@ function App() {
   const memoPager = usePagination(data?.memoTransfers.length ?? 0, 25)
   const compliancePager = usePagination(data?.compliance.length ?? 0, 25)
   const poolsPager = usePagination(data?.feeAmm.pools.length ?? 0, 25)
+  const memoSearchPager = usePagination(memoResults.length, 25)
+
+  const deltas = data && prevData ? {
+    totalTransfers: formatDelta(data.aggregates.totalTransferCount, prevData.aggregates.totalTransferCount),
+    memoTransfers: formatDelta(data.aggregates.memoTransferCount, prevData.aggregates.memoTransferCount),
+    feePayments: formatDelta(data.fees.length, prevData.fees.length),
+    uniqueFeePayers: formatDelta(data.aggregates.uniqueFeePayers, prevData.aggregates.uniqueFeePayers),
+    sponsoredRate: formatDeltaPct(
+      data.aggregates.sponsoredFeePaymentRate * 100,
+      prevData.aggregates.sponsoredFeePaymentRate * 100,
+    ),
+    complianceEvents: formatDelta(data.aggregates.complianceEventCount, prevData.aggregates.complianceEventCount),
+  } : null
 
   return (
     <div className="shell">
@@ -532,37 +630,111 @@ function App() {
         </div>
       </header>
 
-      <section className="card">
-        <div className="row">
-          <input
-            value={memoQuery}
-            onChange={(e) => setMemoQuery(e.target.value)}
-            placeholder="Memo (bytes32 hex), e.g. 0x…"
-          />
-          <a
-            className={`btn ${memoQuery.length !== 66 ? 'disabled' : ''}`}
-            href={memoQuery.length === 66 ? `/api/memo/${memoQuery}?window=${window}` : undefined}
-            target="_blank"
-            rel="noreferrer"
-          >
-            Query Memo API
-          </a>
-        </div>
-        <div className="hint">
-          Tip: memo must be a 32-byte hex string (0x + 64 hex).
-        </div>
-      </section>
+      <div className="tabs">
+        <button
+          className={`tabBtn ${tab === 'analytics' ? 'active' : ''}`}
+          onClick={() => setTab('analytics')}
+        >
+          Analytics
+        </button>
+        <button className={`tabBtn ${tab === 'memo' ? 'active' : ''}`} onClick={() => setTab('memo')}>
+          Memo Explorer
+        </button>
+      </div>
+
+      {tab === 'memo' && (
+        <section className="card">
+          <div className="row">
+            <input
+              value={memoQuery}
+              onChange={(e) => setMemoQuery(e.target.value)}
+              placeholder="Memo (bytes32 hex), e.g. 0x…"
+            />
+            <button onClick={() => void runMemoSearch()} disabled={memoQuery.length !== 66 || memoLoading}>
+              {memoLoading ? 'Searching…' : 'Search'}
+            </button>
+          </div>
+          <div className="hint">Memo must be 32-byte hex (0x + 64 hex).</div>
+
+          {memoError && <div className="error">{memoError}</div>}
+
+          <div className="tableControls">
+            <div className="muted">{memoResults.length} rows</div>
+            <div className="pager">
+              <button
+                className="pagerBtn"
+                disabled={memoSearchPager.page === 0}
+                onClick={() => memoSearchPager.setPage(memoSearchPager.page - 1)}
+              >
+                Prev
+              </button>
+              <span className="mono">{memoSearchPager.page + 1}/{memoSearchPager.pages}</span>
+              <button
+                className="pagerBtn"
+                disabled={memoSearchPager.page + 1 >= memoSearchPager.pages}
+                onClick={() => memoSearchPager.setPage(memoSearchPager.page + 1)}
+              >
+                Next
+              </button>
+              <select value={memoSearchPager.pageSize} onChange={(e) => memoSearchPager.setPageSize(Number(e.target.value))}>
+                <option value={25}>25</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+              </select>
+            </div>
+          </div>
+
+          <table>
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Token</th>
+                <th>Amount</th>
+                <th>From</th>
+                <th>To</th>
+                <th>Memo</th>
+                <th>Tx</th>
+              </tr>
+            </thead>
+            <tbody>
+              {memoResults.slice(memoSearchPager.start, memoSearchPager.end).map((t) => (
+                <tr key={`${t.txHash}:${t.memo}`}> 
+                  <td className="mono">{formatTs(t.timestamp)}</td>
+                  <td>
+                    <TokenBadge token={t.token} />
+                  </td>
+                  <td className="mono">{t.amount}</td>
+                  <td className="mono">{short(t.from)}</td>
+                  <td className="mono">{short(t.to)}</td>
+                  <td className="mono">{short(t.memo)}</td>
+                  <td className="mono">
+                    <a href={`https://explore.tempo.xyz/tx/${t.txHash}`} target="_blank" rel="noreferrer">
+                      {short(t.txHash)}
+                    </a>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      )}
 
       {loading && <div className="muted">Loading…</div>}
       {!loading && showingCached && <div className="muted">Showing cached data; refreshing…</div>}
       {error && <div className="error">{error}</div>}
 
-      {data && (
+      {data && tab === 'analytics' && (
         <>
           <section className="grid">
             <div className="stat">
+              <div className="k">Total transfers</div>
+              <div className="v">{data.aggregates.totalTransferCount}</div>
+              {deltas && <div className="delta">{deltas.totalTransfers}</div>}
+            </div>
+            <div className="stat">
               <div className="k">Memo transfers</div>
               <div className="v">{data.aggregates.memoTransferCount}</div>
+              {deltas && <div className="delta">{deltas.memoTransfers}</div>}
             </div>
             <div className="stat">
               <div className="k">Unique memos</div>
@@ -571,27 +743,200 @@ function App() {
             <div className="stat">
               <div className="k">Fee payments</div>
               <div className="v">{data.fees.length}</div>
+              {deltas && <div className="delta">{deltas.feePayments}</div>}
             </div>
             <div className="stat">
               <div className="k">Unique fee payers</div>
               <div className="v">{data.aggregates.uniqueFeePayers}</div>
+              {deltas && <div className="delta">{deltas.uniqueFeePayers}</div>}
             </div>
             <div className="stat">
               <div className="k">Sponsored fee payments</div>
               <div className="v">{(data.aggregates.sponsoredFeePaymentRate * 100).toFixed(1)}%</div>
+              {deltas && <div className="delta">{deltas.sponsoredRate}</div>}
             </div>
             <div className="stat">
               <div className="k">Compliance events</div>
               <div className="v">{data.aggregates.complianceEventCount}</div>
-            </div>
-            <div className="stat">
-              <div className="k">Affected addresses</div>
-              <div className="v">{data.aggregates.uniqueAffectedAddresses}</div>
+              {deltas && <div className="delta">{deltas.complianceEvents}</div>}
             </div>
             <div className="stat">
               <div className="k">Block range</div>
               <div className="v">
                 {data.range.fromBlock}–{data.range.toBlock}
+              </div>
+            </div>
+          </section>
+
+          <section className="card">
+            <div className="sectionTitle">Payments Funnel</div>
+            <table>
+              <thead>
+                <tr>
+                  <th>Stage</th>
+                  <th>Count</th>
+                  <th>Share</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Total transfers</td>
+                  <td className="mono">{data.aggregates.totalTransferCount}</td>
+                  <td className="mono">100%</td>
+                </tr>
+                <tr>
+                  <td>Memo transfers (coverage)</td>
+                  <td className="mono">{data.aggregates.memoTransferCount}</td>
+                  <td className="mono">
+                    {data.aggregates.totalTransferCount > 0
+                      ? ((data.aggregates.memoTransferCount / data.aggregates.totalTransferCount) * 100).toFixed(1)
+                      : '0'}%
+                  </td>
+                </tr>
+                <tr>
+                  <td>Sponsored fee transfers</td>
+                  <td className="mono">{data.aggregates.sponsoredFeePayments}</td>
+                  <td className="mono">
+                    {data.aggregates.memoTransferCount > 0
+                      ? ((data.aggregates.sponsoredFeePayments / data.aggregates.memoTransferCount) * 100).toFixed(1)
+                      : '0'}%
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </section>
+
+          <section className="charts">
+            <div className="chartCard">
+              <div className="chartTitle">
+                <div className="label">Top Counterparties (Senders)</div>
+                <div className="meta">by memoed transfer volume</div>
+              </div>
+              <div style={{ width: '100%', height: 260 }}>
+                <ResponsiveContainer>
+                  <BarChart
+                    data={counterpartyStats?.topSenders.map((r) => ({
+                      address: short(r.address),
+                      addressFull: r.address,
+                      volume: r.volume,
+                      count: r.count,
+                    }))}
+                    margin={{ top: 8, right: 10, bottom: 0, left: 0 }}
+                  >
+                    <CartesianGrid stroke="rgba(255,255,255,0.08)" strokeDasharray="3 3" />
+                    <XAxis dataKey="address" stroke="rgba(255,255,255,0.55)" tick={{ fontSize: 12 }} />
+                    <YAxis stroke="rgba(255,255,255,0.55)" tick={{ fontSize: 12 }} />
+                    <Tooltip
+                      formatter={(value, name, props) =>
+                        name === 'volume'
+                          ? [Number(value).toFixed(2), `volume (${(props.payload as any).addressFull})`]
+                          : [value, name]}
+                      {...tooltipCommon}
+                    />
+                    <Bar dataKey="volume" fill="#fbbf24" radius={[8, 8, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            <div className="chartCard">
+              <div className="chartTitle">
+                <div className="label">Top Counterparties (Receivers)</div>
+                <div className="meta">by memoed transfer volume</div>
+              </div>
+              <div style={{ width: '100%', height: 260 }}>
+                <ResponsiveContainer>
+                  <BarChart
+                    data={counterpartyStats?.topReceivers.map((r) => ({
+                      address: short(r.address),
+                      addressFull: r.address,
+                      volume: r.volume,
+                      count: r.count,
+                    }))}
+                    margin={{ top: 8, right: 10, bottom: 0, left: 0 }}
+                  >
+                    <CartesianGrid stroke="rgba(255,255,255,0.08)" strokeDasharray="3 3" />
+                    <XAxis dataKey="address" stroke="rgba(255,255,255,0.55)" tick={{ fontSize: 12 }} />
+                    <YAxis stroke="rgba(255,255,255,0.55)" tick={{ fontSize: 12 }} />
+                    <Tooltip
+                      formatter={(value, name, props) =>
+                        name === 'volume'
+                          ? [Number(value).toFixed(2), `volume (${(props.payload as any).addressFull})`]
+                          : [value, name]}
+                      {...tooltipCommon}
+                    />
+                    <Bar dataKey="volume" fill="#67e8f9" radius={[8, 8, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          </section>
+
+          <section className="charts">
+            <div className="chartCard">
+              <div className="chartTitle">
+                <div className="label">Token Dominance (Memo Volume)</div>
+                <div className="meta">share of memoed volume</div>
+              </div>
+              <div style={{ width: '100%', height: 260 }}>
+                <ResponsiveContainer>
+                  <PieChart>
+                    <Tooltip {...tooltipCommon} />
+                    <Pie
+                      data={tokenDominance}
+                      dataKey="value"
+                      nameKey="token"
+                      innerRadius={55}
+                      outerRadius={95}
+                      paddingAngle={2}
+                    >
+                      {tokenDominance.map((e) => (
+                        <Cell key={e.token} fill={tokenColors[e.token] ?? '#67e8f9'} />
+                      ))}
+                    </Pie>
+                    <Legend content={(p) => <TokenLegend tokenBySymbol={tokenBySymbol} payload={p.payload as any} />} />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            <div className="chartCard">
+              <div className="chartTitle">
+                <div className="label">Fee Demand vs Pool Reserves</div>
+                <div className="meta">Fee AMM liquidity health</div>
+              </div>
+              {liquidityAlerts.length > 0 && (
+                <div className="chips" style={{ marginBottom: 10 }}>
+                  {liquidityAlerts.map((r) => (
+                    <div className="chip" key={r.token}>
+                      {r.token} low liquidity
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div style={{ width: '100%', height: 260 }}>
+                <ResponsiveContainer>
+                  <BarChart
+                    data={liquidityRows.map((r) => ({
+                      token: r.token,
+                      demand: r.demand,
+                      reserve: r.liquidity,
+                    }))}
+                    margin={{ top: 8, right: 10, bottom: 0, left: 0 }}
+                  >
+                    <CartesianGrid stroke="rgba(255,255,255,0.08)" strokeDasharray="3 3" />
+                    <XAxis
+                      dataKey="token"
+                      stroke="rgba(255,255,255,0.55)"
+                      tick={(p) => <TokenAxisTick {...(p as any)} tokenBySymbol={tokenBySymbol} />}
+                    />
+                    <YAxis stroke="rgba(255,255,255,0.55)" tick={{ fontSize: 12 }} />
+                    <Tooltip {...tooltipCommon} />
+                    <Legend />
+                    <Bar dataKey="demand" fill="#fb7185" radius={[8, 8, 0, 0]} />
+                    <Bar dataKey="reserve" fill="#34d399" radius={[8, 8, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
               </div>
             </div>
           </section>
@@ -1066,6 +1411,9 @@ function App() {
             <div className="tableControls">
               <div className="muted">{data.memoTransfers.length} rows</div>
               <div className="pager">
+                <button className="pagerBtn" onClick={() => setTab('memo')}>
+                  Open Memo Explorer
+                </button>
                 <button className="pagerBtn" disabled={memoPager.page === 0} onClick={() => memoPager.setPage(memoPager.page - 1)}>
                   Prev
                 </button>
@@ -1098,7 +1446,14 @@ function App() {
               </thead>
               <tbody>
                 {data.memoTransfers.slice(memoPager.start, memoPager.end).map((t) => (
-                  <tr key={`${t.txHash}:${t.memo}`}> 
+                  <tr
+                    key={`${t.txHash}:${t.memo}`}
+                    className="rowClickable"
+                    onClick={() => {
+                      setTab('memo')
+                      void runMemoSearch(t.memo)
+                    }}
+                  >
                     <td className="mono">{formatTs(t.timestamp)}</td>
                     <td>
                       <TokenBadge token={t.token} />

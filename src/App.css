@@ -17,6 +17,28 @@
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 }
 
+.tabs {
+  display: flex;
+  gap: 10px;
+  margin: 16px 0 6px;
+}
+
+.tabBtn {
+  height: 34px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.85);
+  cursor: pointer;
+}
+
+.tabBtn.active {
+  background: rgba(103, 232, 249, 0.16);
+  border-color: rgba(103, 232, 249, 0.5);
+  color: #e2faff;
+}
+
 .title {
   font-size: 22px;
   font-weight: 650;
@@ -131,6 +153,12 @@ input {
   margin-top: 6px;
   font-size: 18px;
   font-weight: 650;
+}
+
+.delta {
+  margin-top: 6px;
+  font-size: 12px;
+  color: rgba(103, 232, 249, 0.9);
 }
 
 .sectionTitle {
@@ -250,6 +278,14 @@ td {
   padding: 8px 8px;
   border-top: 1px solid rgba(255, 255, 255, 0.08);
   vertical-align: top;
+}
+
+.rowClickable {
+  cursor: pointer;
+}
+
+.rowClickable:hover {
+  background: rgba(255, 255, 255, 0.05);
 }
 
 th {
