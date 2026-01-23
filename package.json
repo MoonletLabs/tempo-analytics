@@ -1,0 +1,46 @@
+{
+  "name": "tempo-analytics",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -n server,web -c auto \"tsx watch server/index.ts\" \"vite\"",
+    "build": "tsc -b && vite build && tsup server/index.ts --format esm --platform node --out-dir dist-server",
+    "lint": "eslint .",
+    "preview": "vite preview",
+    "start": "node dist-server/index.js",
+    "serve:prod": "sh -c 'P=${PORT:-8790}; NODE_ENV=production PORT=$P node dist-server/index.js'",
+    "tunnel:ngrok": "sh -c 'P=${PORT:-8790}; ngrok http $P'",
+    "deploy:ngrok": "sh -c 'P=${PORT:-8790}; npm run build && concurrently -n server,ngrok -c auto \"NODE_ENV=production PORT=$P node dist-server/index.js\" \"ngrok http $P\"'"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "lru-cache": "^11.0.2",
+    "p-limit": "^6.2.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "recharts": "^2.15.0",
+    "viem": "^2.23.2",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.1",
+    "@types/node": "^24.10.1",
+    "@types/cors": "^2.8.18",
+    "@types/express": "^4.17.21",
+    "@types/react": "^19.2.5",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.1.1",
+    "concurrently": "^9.1.0",
+    "eslint": "^9.39.1",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "eslint-plugin-react-refresh": "^0.4.24",
+    "globals": "^16.5.0",
+    "tsup": "^8.0.2",
+    "tsx": "^4.19.2",
+    "typescript": "~5.9.3",
+    "typescript-eslint": "^8.46.4",
+    "vite": "^7.2.4"
+  }
+}
