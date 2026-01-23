@@ -461,7 +461,7 @@ function usePagination(total: number, initialPageSize = 25) {
 
 function App() {
   const [window, setWindow] = useState<'1h' | '6h' | '24h' | '7d'>('1h')
-  const [tab, setTab] = useState<'analytics' | 'memo'>('analytics')
+  const [tab, setTab] = useState<'analytics' | 'memo' | 'tables'>('analytics')
   const [memoQuery, setMemoQuery] = useState('')
   const [memoResults, setMemoResults] = useState<MemoTransfer[]>([])
   const [memoLoading, setMemoLoading] = useState(false)
@@ -636,6 +636,9 @@ function App() {
           onClick={() => setTab('analytics')}
         >
           Analytics
+        </button>
+        <button className={`tabBtn ${tab === 'tables' ? 'active' : ''}`} onClick={() => setTab('tables')}>
+          Data Explorer
         </button>
         <button className={`tabBtn ${tab === 'memo' ? 'active' : ''}`} onClick={() => setTab('memo')}>
           Memo Explorer
@@ -1339,57 +1342,14 @@ function App() {
                 </div>
               </section>
 
-              <section className="card">
-                <div className="sectionTitle">Fee AMM Pools (sample)</div>
-                <div className="tableControls">
-                  <div className="muted">{data.feeAmm.pools.length} rows</div>
-                  <div className="pager">
-                    <button className="pagerBtn" disabled={poolsPager.page === 0} onClick={() => poolsPager.setPage(poolsPager.page - 1)}>
-                      Prev
-                    </button>
-                    <span className="mono">{poolsPager.page + 1}/{poolsPager.pages}</span>
-                    <button
-                      className="pagerBtn"
-                      disabled={poolsPager.page + 1 >= poolsPager.pages}
-                      onClick={() => poolsPager.setPage(poolsPager.page + 1)}
-                    >
-                      Next
-                    </button>
-                    <select value={poolsPager.pageSize} onChange={(e) => poolsPager.setPageSize(Number(e.target.value))}>
-                      <option value={25}>25</option>
-                      <option value={50}>50</option>
-                      <option value={100}>100</option>
-                    </select>
-                  </div>
-                </div>
-                <table>
-                  <thead>
-                    <tr>
-                      <th>User Token</th>
-                      <th>Validator Token</th>
-                      <th>User Reserve</th>
-                      <th>Validator Reserve</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.feeAmm.pools.slice(poolsPager.start, poolsPager.end).map((p, idx) => (
-                      <tr key={`${p.userToken.symbol}:${p.validatorToken.symbol}:${idx}`}>
-                        <td>
-                          <TokenBadge token={p.userToken} />
-                        </td>
-                        <td>
-                          <TokenBadge token={p.validatorToken} />
-                        </td>
-                        <td className="mono">{p.reserveUserToken}</td>
-                        <td className="mono">{p.reserveValidatorToken}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </section>
             </>
           )}
 
+        </>
+      )}
+
+      {data && tab === 'tables' && (
+        <>
           <section className="card">
             <div className="sectionTitle">Fee Paid (to FeeManager)</div>
             <div className="chips">
@@ -1516,6 +1476,55 @@ function App() {
                         {short(e.txHash)}
                       </a>
                     </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </section>
+
+          <section className="card">
+            <div className="sectionTitle">Fee AMM Pools</div>
+            <div className="tableControls">
+              <div className="muted">{data.feeAmm.pools.length} rows</div>
+              <div className="pager">
+                <button className="pagerBtn" disabled={poolsPager.page === 0} onClick={() => poolsPager.setPage(poolsPager.page - 1)}>
+                  Prev
+                </button>
+                <span className="mono">{poolsPager.page + 1}/{poolsPager.pages}</span>
+                <button
+                  className="pagerBtn"
+                  disabled={poolsPager.page + 1 >= poolsPager.pages}
+                  onClick={() => poolsPager.setPage(poolsPager.page + 1)}
+                >
+                  Next
+                </button>
+                <select value={poolsPager.pageSize} onChange={(e) => poolsPager.setPageSize(Number(e.target.value))}>
+                  <option value={25}>25</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                </select>
+              </div>
+            </div>
+            <table>
+              <thead>
+                <tr>
+                  <th>User Token</th>
+                  <th>Validator Token</th>
+                  <th>User Reserve</th>
+                  <th>Validator Reserve</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.feeAmm.pools.slice(poolsPager.start, poolsPager.end).map((p, idx) => (
+                  <tr key={`${p.userToken.symbol}:${p.validatorToken.symbol}:${idx}`}>
+                    <td>
+                      <TokenBadge token={p.userToken} />
+                    </td>
+                    <td>
+                      <TokenBadge token={p.validatorToken} />
+                    </td>
+                    <td className="mono">{p.reserveUserToken}</td>
+                    <td className="mono">{p.reserveValidatorToken}</td>
                   </tr>
                 ))}
               </tbody>
