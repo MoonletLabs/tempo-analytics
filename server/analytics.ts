@@ -15,6 +15,8 @@ import { applyApproxTimestamps, getTimeModel } from './timeModel'
 import type { TempoToken } from './tokenlist'
 import { fetchTokenlist } from './tokenlist'
 
+const MAX_EVENTS = Number.parseInt(process.env.TEMPO_MAX_EVENTS ?? '1000', 10)
+
 export type MemoTransfer = {
   token: Pick<TempoToken, 'address' | 'symbol' | 'name' | 'decimals' | 'logoURI'>
   from: Address
@@ -175,7 +177,7 @@ export async function getMemoTransfers(windowSeconds: number, memo?: Hex) {
   }
 
   transfers.sort((a, b) => b.blockNumber - a.blockNumber)
-  return attachTimestamps(transfers.slice(0, 250))
+  return attachTimestamps(transfers.slice(0, MAX_EVENTS))
 }
 
 export async function getFeePayments(windowSeconds: number) {
@@ -220,7 +222,7 @@ export async function getFeePayments(windowSeconds: number) {
 
   fees.sort((a, b) => b.blockNumber - a.blockNumber)
 
-  const withTs = await attachTimestamps(fees.slice(0, 250))
+  const withTs = await attachTimestamps(fees.slice(0, MAX_EVENTS))
 
   // Enrich with tx sender to estimate sponsorship rate.
   // (Fee payer is the account that transferred TIP-20 fees to FeeManager)
@@ -413,7 +415,7 @@ export async function getComplianceEvents(windowSeconds: number) {
   }
 
   raw.sort((a, b) => b.blockNumber - a.blockNumber)
-  return attachTimestamps(raw.slice(0, 250))
+  return attachTimestamps(raw.slice(0, MAX_EVENTS))
 }
 
 export async function buildDashboard(windowSeconds: number): Promise<DashboardResponse> {
@@ -474,9 +476,9 @@ export async function buildDashboard(windowSeconds: number): Promise<DashboardRe
       toBlock: range.toBlock.toString(),
     },
     tokens: tokenlist.tokens,
-    memoTransfers: memoTransfers.slice(0, 100),
-    fees: fees.slice(0, 100),
-    compliance: compliance.slice(0, 100),
+    memoTransfers,
+    fees,
+    compliance,
     aggregates: {
       memoTransferCount: memoTransfers.length,
       memoTransferVolumeByToken: memoTransferVolumeByTokenFormatted,

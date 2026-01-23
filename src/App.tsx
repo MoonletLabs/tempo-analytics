@@ -201,6 +201,25 @@ function toNumber(v: string): number {
   return Number.isFinite(n) ? n : 0
 }
 
+function pickBucketSizeSeconds(windowSeconds: number): number {
+  // Aim for <= ~120 points so 7d/30d stays responsive.
+  const targetPoints = 120
+  const ideal = windowSeconds / targetPoints
+  const options = [60, 300, 900, 3600, 21600, 86400]
+  for (const s of options) {
+    if (s >= ideal) return s
+  }
+  return 86400
+}
+
+function formatBucketLabel(windowSeconds: number, tsSeconds: number): string {
+  const iso = new Date(tsSeconds * 1000).toISOString()
+  if (windowSeconds <= 3600) return iso.slice(11, 16)
+  if (windowSeconds <= 24 * 3600) return iso.slice(11, 13) + ':00'
+  if (windowSeconds <= 14 * 24 * 3600) return iso.slice(5, 10) + ' ' + iso.slice(11, 13) + ':00'
+  return iso.slice(5, 10)
+}
+
 function buildTokenBarData(map: Record<string, string>) {
   return Object.entries(map)
     .map(([token, value]) => ({ token, value: toNumber(value) }))
@@ -273,7 +292,7 @@ function bucketSumByToken(
   if (!withTs.length) return []
   const maxTs = Math.max(...withTs.map((i) => i.timestamp))
   const minTs = maxTs - windowSeconds
-  const bucketSize = windowSeconds <= 3600 ? 300 : windowSeconds <= 6 * 3600 ? 900 : 3600
+  const bucketSize = pickBucketSizeSeconds(windowSeconds)
   const tokens = [...new Set(withTs.map((f) => f.token.symbol))]
 
   const buckets = new Map<number, Record<string, number>>()
@@ -289,8 +308,7 @@ function bucketSumByToken(
   const maxBucket = Math.floor(windowSeconds / bucketSize)
   for (let b = 0; b <= maxBucket; b++) {
     const ts = minTs + b * bucketSize
-    const date = new Date(ts * 1000)
-    const t = windowSeconds <= 3600 ? date.toISOString().slice(11, 16) : date.toISOString().slice(11, 13) + ':00'
+    const t = formatBucketLabel(windowSeconds, ts)
     const row = buckets.get(b) ?? Object.fromEntries(tokens.map((tk) => [tk, 0]))
     out.push({ t, ...row })
   }
@@ -305,7 +323,7 @@ function bucketComplianceByType(
   if (!withTs.length) return []
   const maxTs = Math.max(...withTs.map((i) => i.timestamp))
   const minTs = maxTs - windowSeconds
-  const bucketSize = windowSeconds <= 3600 ? 300 : windowSeconds <= 6 * 3600 ? 900 : 3600
+  const bucketSize = pickBucketSizeSeconds(windowSeconds)
   const types = ['PolicyCreated', 'PolicyAdminUpdated', 'WhitelistUpdated', 'BlacklistUpdated']
 
   const buckets = new Map<number, Record<string, number>>()
@@ -321,8 +339,7 @@ function bucketComplianceByType(
   const maxBucket = Math.floor(windowSeconds / bucketSize)
   for (let b = 0; b <= maxBucket; b++) {
     const ts = minTs + b * bucketSize
-    const date = new Date(ts * 1000)
-    const t = windowSeconds <= 3600 ? date.toISOString().slice(11, 16) : date.toISOString().slice(11, 13) + ':00'
+    const t = formatBucketLabel(windowSeconds, ts)
     const row = buckets.get(b) ?? Object.fromEntries(types.map((x) => [x, 0]))
     out.push({ t, ...row })
   }
@@ -358,12 +375,7 @@ function bucketCounts(
   const maxTs = Math.max(...withTs.map((i) => i.timestamp))
   const minTs = maxTs - windowSeconds
 
-  const bucketSize =
-    windowSeconds <= 3600
-      ? 300
-      : windowSeconds <= 6 * 3600
-        ? 900
-        : 3600
+  const bucketSize = pickBucketSizeSeconds(windowSeconds)
 
   const buckets = new Map<number, number>()
   for (const i of withTs) {
@@ -377,18 +389,35 @@ function bucketCounts(
   const maxBucket = Math.floor(windowSeconds / bucketSize)
   for (let b = 0; b <= maxBucket; b++) {
     const ts = minTs + b * bucketSize
-    const date = new Date(ts * 1000)
-    const t =
-      windowSeconds <= 3600
-        ? date.toISOString().slice(11, 16)
-        : date.toISOString().slice(11, 13) + ':00'
+    const t = formatBucketLabel(windowSeconds, ts)
     out.push({ t, count: buckets.get(b) ?? 0 })
   }
   return out
 }
 
+function usePagination(total: number, initialPageSize = 25) {
+  const [page, setPage] = useState(0)
+  const [pageSize, setPageSize] = useState(initialPageSize)
+  const pages = Math.max(1, Math.ceil(total / pageSize))
+
+  useEffect(() => {
+    if (page > pages - 1) setPage(pages - 1)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pages])
+
+  return {
+    page,
+    pageSize,
+    pages,
+    setPage,
+    setPageSize,
+    start: page * pageSize,
+    end: page * pageSize + pageSize,
+  }
+}
+
 function App() {
-  const [window, setWindow] = useState<'1h' | '6h' | '24h'>('1h')
+  const [window, setWindow] = useState<'1h' | '6h' | '24h' | '7d'>('1h')
   const [memoQuery, setMemoQuery] = useState('')
   const [data, setData] = useState<DashboardResponse | null>(null)
   const [loading, setLoading] = useState(true)
@@ -473,6 +502,10 @@ function App() {
     cursor: { fill: 'rgba(255,255,255,0.06)' },
   } as const
 
+  const memoPager = usePagination(data?.memoTransfers.length ?? 0, 25)
+  const compliancePager = usePagination(data?.compliance.length ?? 0, 25)
+  const poolsPager = usePagination(data?.feeAmm.pools.length ?? 0, 25)
+
   return (
     <div className="shell">
       <header className="header">
@@ -484,10 +517,14 @@ function App() {
         </div>
 
         <div className="controls">
-          <select value={window} onChange={(e) => setWindow(e.target.value as '1h' | '6h' | '24h')}>
+          <select
+            value={window}
+            onChange={(e) => setWindow(e.target.value as '1h' | '6h' | '24h' | '7d')}
+          >
             <option value="1h">1h</option>
             <option value="6h">6h</option>
             <option value="24h">24h</option>
+            <option value="7d">7d</option>
           </select>
           <button onClick={() => void load()} disabled={loading}>
             Refresh
@@ -959,6 +996,27 @@ function App() {
 
               <section className="card">
                 <div className="sectionTitle">Fee AMM Pools (sample)</div>
+                <div className="tableControls">
+                  <div className="muted">{data.feeAmm.pools.length} rows</div>
+                  <div className="pager">
+                    <button className="pagerBtn" disabled={poolsPager.page === 0} onClick={() => poolsPager.setPage(poolsPager.page - 1)}>
+                      Prev
+                    </button>
+                    <span className="mono">{poolsPager.page + 1}/{poolsPager.pages}</span>
+                    <button
+                      className="pagerBtn"
+                      disabled={poolsPager.page + 1 >= poolsPager.pages}
+                      onClick={() => poolsPager.setPage(poolsPager.page + 1)}
+                    >
+                      Next
+                    </button>
+                    <select value={poolsPager.pageSize} onChange={(e) => poolsPager.setPageSize(Number(e.target.value))}>
+                      <option value={25}>25</option>
+                      <option value={50}>50</option>
+                      <option value={100}>100</option>
+                    </select>
+                  </div>
+                </div>
                 <table>
                   <thead>
                     <tr>
@@ -969,7 +1027,7 @@ function App() {
                     </tr>
                   </thead>
                   <tbody>
-                    {data.feeAmm.pools.slice(0, 30).map((p, idx) => (
+                    {data.feeAmm.pools.slice(poolsPager.start, poolsPager.end).map((p, idx) => (
                       <tr key={`${p.userToken.symbol}:${p.validatorToken.symbol}:${idx}`}>
                         <td>
                           <TokenBadge token={p.userToken} />
@@ -1005,6 +1063,27 @@ function App() {
 
           <section className="card">
             <div className="sectionTitle">Recent Memo Transfers</div>
+            <div className="tableControls">
+              <div className="muted">{data.memoTransfers.length} rows</div>
+              <div className="pager">
+                <button className="pagerBtn" disabled={memoPager.page === 0} onClick={() => memoPager.setPage(memoPager.page - 1)}>
+                  Prev
+                </button>
+                <span className="mono">{memoPager.page + 1}/{memoPager.pages}</span>
+                <button
+                  className="pagerBtn"
+                  disabled={memoPager.page + 1 >= memoPager.pages}
+                  onClick={() => memoPager.setPage(memoPager.page + 1)}
+                >
+                  Next
+                </button>
+                <select value={memoPager.pageSize} onChange={(e) => memoPager.setPageSize(Number(e.target.value))}>
+                  <option value={25}>25</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                </select>
+              </div>
+            </div>
             <table>
               <thead>
                 <tr>
@@ -1018,7 +1097,7 @@ function App() {
                 </tr>
               </thead>
               <tbody>
-                {data.memoTransfers.slice(0, 25).map((t) => (
+                {data.memoTransfers.slice(memoPager.start, memoPager.end).map((t) => (
                   <tr key={`${t.txHash}:${t.memo}`}> 
                     <td className="mono">{formatTs(t.timestamp)}</td>
                     <td>
@@ -1041,6 +1120,27 @@ function App() {
 
           <section className="card">
             <div className="sectionTitle">Recent Compliance Events (TIP-403)</div>
+            <div className="tableControls">
+              <div className="muted">{data.compliance.length} rows</div>
+              <div className="pager">
+                <button className="pagerBtn" disabled={compliancePager.page === 0} onClick={() => compliancePager.setPage(compliancePager.page - 1)}>
+                  Prev
+                </button>
+                <span className="mono">{compliancePager.page + 1}/{compliancePager.pages}</span>
+                <button
+                  className="pagerBtn"
+                  disabled={compliancePager.page + 1 >= compliancePager.pages}
+                  onClick={() => compliancePager.setPage(compliancePager.page + 1)}
+                >
+                  Next
+                </button>
+                <select value={compliancePager.pageSize} onChange={(e) => compliancePager.setPageSize(Number(e.target.value))}>
+                  <option value={25}>25</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                </select>
+              </div>
+            </div>
             <table>
               <thead>
                 <tr>
@@ -1051,7 +1151,7 @@ function App() {
                 </tr>
               </thead>
               <tbody>
-                {data.compliance.slice(0, 25).map((e) => (
+                {data.compliance.slice(compliancePager.start, compliancePager.end).map((e) => (
                   <tr key={`${e.txHash}:${e.type}:${e.policyId}`}> 
                     <td className="mono">{formatTs(e.timestamp)}</td>
                     <td>{e.type}</td>

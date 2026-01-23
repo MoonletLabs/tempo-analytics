@@ -190,6 +190,28 @@ table {
   border-collapse: collapse;
 }
 
+.tableControls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin: 6px 0 10px;
+}
+
+.pager {
+  display: inline-flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.pagerBtn {
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.06);
+}
+
 .charts {
   display: grid;
   grid-template-columns: 1.2fr 0.8fr;

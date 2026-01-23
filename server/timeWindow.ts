@@ -14,5 +14,7 @@ export function parseWindowSeconds(raw: string | undefined): number {
   const amount = Number.parseInt(value.slice(0, -1), 10)
   const unit = value.slice(-1)
   if (!Number.isFinite(amount) || amount <= 0) return 24 * 3600
-  return unit === 'h' ? amount * 3600 : amount * 24 * 3600
+  const seconds = unit === 'h' ? amount * 3600 : amount * 24 * 3600
+  // Hard cap to 7 days for now.
+  return Math.min(seconds, 7 * 24 * 3600)
 }

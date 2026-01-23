@@ -25,7 +25,7 @@ docker compose up --build -d
 
 Open:
 
-- http://localhost:8790
+- http://localhost:8080
 
 Config examples:
 
@@ -36,6 +36,12 @@ TEMPO_RPC_URL=http://127.0.0.1:8545 docker compose up --build -d
 # Scan more blocks (only recommended on your own RPC)
 TEMPO_MAX_SCAN_BLOCKS=100000 docker compose up --build -d
 ```
+
+## Nginx + Cloudflare notes
+
+This compose setup exposes only port `8080` on the host. Nginx forwards both the web UI and `/api/*` to the app container.
+
+Cloudflare proxy supports HTTP ports like 80/8080/8880. If you want to use Cloudflare (orange cloud) without opening 443 on the VM, point `tempo.moonlet.dev` to the VM and set the origin port to `8080`.
 
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
