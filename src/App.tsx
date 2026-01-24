@@ -463,7 +463,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null)
 
   async function load() {
-    setLoading(true)
+        setLoading(true)
     setError(null)
     try {
       const res = await fetch('/api/dashboard')
@@ -509,9 +509,9 @@ export default function App() {
   const feesSeries = data ? bucketSumByToken(data.fees, data.windowSeconds) : []
   const complianceSeries = data ? bucketComplianceByType(data.compliance, data.windowSeconds) : []
 
-  const sponsorKnown = data ? data.fees.filter((f) => typeof f.sponsored === 'boolean').length : 0
-  const sponsored = data ? data.fees.filter((f) => f.sponsored === true).length : 0
-  const selfPaid = Math.max(0, sponsorKnown - sponsored)
+  // Use sponsorship data from aggregates (calculated server-side)
+  const sponsored = data ? data.aggregates.sponsoredFeePayments : 0
+  const selfPaid = data ? Math.max(0, data.fees.length - sponsored) : 0
 
   const feeAmmLiquidity = data ? buildTokenBarData(data.feeAmm.totalLiquidityByToken) : []
 
@@ -1149,24 +1149,31 @@ export default function App() {
 
                   <ChartCard title="Compliance Events Over Time" description="TIP-403 registry activity">
                     <div className="h-64">
+                    {complianceSeries.length > 0 && data && data.compliance.length > 0 ? (
                     <ResponsiveContainer>
                       <BarChart data={complianceSeries} margin={{ top: 8, right: 10, bottom: 0, left: 0 }}>
-                          <CartesianGrid strokeDasharray="3 3" className="stroke-slate-200 dark:stroke-slate-700" />
-                          <XAxis dataKey="t" tick={{ fontSize: 12 }} className="fill-slate-500 dark:fill-slate-400" />
-                          <YAxis tick={{ fontSize: 12 }} className="fill-slate-500 dark:fill-slate-400" />
-                          <Tooltip content={<CustomTooltip />} />
+                            <CartesianGrid strokeDasharray="3 3" className="stroke-slate-200 dark:stroke-slate-700" />
+                            <XAxis dataKey="t" tick={{ fontSize: 12 }} className="fill-slate-500 dark:fill-slate-400" />
+                            <YAxis tick={{ fontSize: 12 }} className="fill-slate-500 dark:fill-slate-400" />
+                            <Tooltip content={<CustomTooltip />} />
                         <Legend />
-                          <Bar dataKey="WhitelistUpdated" stackId="1" fill={chartColors.tertiary} />
-                          <Bar dataKey="BlacklistUpdated" stackId="1" fill={chartColors.danger} />
-                          <Bar dataKey="PolicyAdminUpdated" stackId="1" fill={chartColors.secondary} />
-                          <Bar dataKey="PolicyCreated" stackId="1" fill={chartColors.quaternary} />
+                            <Bar dataKey="WhitelistUpdated" stackId="1" fill={chartColors.tertiary} />
+                            <Bar dataKey="BlacklistUpdated" stackId="1" fill={chartColors.danger} />
+                            <Bar dataKey="PolicyAdminUpdated" stackId="1" fill={chartColors.secondary} />
+                            <Bar dataKey="PolicyCreated" stackId="1" fill={chartColors.quaternary} />
                       </BarChart>
                     </ResponsiveContainer>
+                    ) : (
+                      <div className="flex h-full items-center justify-center text-slate-500 dark:text-slate-400">
+                        No compliance events in the last hour
                   </div>
+                    )}
+                </div>
                   </ChartCard>
 
                   <ChartCard title="Top Compliance Updaters" description="Who changes policies most">
                     <div className="h-64">
+                    {complianceStats && complianceStats.topUpdaters.length > 0 ? (
                     <ResponsiveContainer>
                       <BarChart
                         data={complianceStats.topUpdaters.map((u) => ({
@@ -1175,28 +1182,39 @@ export default function App() {
                           count: u.count,
                         }))}
                       >
-                          <CartesianGrid strokeDasharray="3 3" className="stroke-slate-200 dark:stroke-slate-700" />
-                          <XAxis dataKey="updater" tick={{ fontSize: 12 }} className="fill-slate-500 dark:fill-slate-400" />
-                          <YAxis tick={{ fontSize: 12 }} className="fill-slate-500 dark:fill-slate-400" />
-                          <Tooltip content={<CustomTooltip />} />
-                          <Bar dataKey="count" fill={chartColors.secondary} radius={[6, 6, 0, 0]} />
+                            <CartesianGrid strokeDasharray="3 3" className="stroke-slate-200 dark:stroke-slate-700" />
+                            <XAxis dataKey="updater" tick={{ fontSize: 12 }} className="fill-slate-500 dark:fill-slate-400" />
+                            <YAxis tick={{ fontSize: 12 }} className="fill-slate-500 dark:fill-slate-400" />
+                            <Tooltip content={<CustomTooltip />} />
+                            <Bar dataKey="count" fill={chartColors.secondary} radius={[6, 6, 0, 0]} />
                       </BarChart>
                     </ResponsiveContainer>
+                    ) : (
+                      <div className="flex h-full items-center justify-center text-slate-500 dark:text-slate-400">
+                        No compliance events in the last hour
                   </div>
+                    )}
+                </div>
                   </ChartCard>
 
                   <ChartCard title="Most Changed Policies" description="Policy ID churn">
                     <div className="h-64">
+                    {complianceStats && complianceStats.topPolicies.length > 0 ? (
                     <ResponsiveContainer>
                       <BarChart data={complianceStats.topPolicies}>
-                          <CartesianGrid strokeDasharray="3 3" className="stroke-slate-200 dark:stroke-slate-700" />
-                          <XAxis dataKey="policyId" tick={{ fontSize: 12 }} className="fill-slate-500 dark:fill-slate-400" />
-                          <YAxis tick={{ fontSize: 12 }} className="fill-slate-500 dark:fill-slate-400" />
-                          <Tooltip content={<CustomTooltip />} />
-                          <Bar dataKey="changes" fill={chartColors.danger} radius={[6, 6, 0, 0]} />
+                            <CartesianGrid strokeDasharray="3 3" className="stroke-slate-200 dark:stroke-slate-700" />
+                            <XAxis dataKey="policyId" tick={{ fontSize: 12 }} className="fill-slate-500 dark:fill-slate-400" />
+                            <YAxis tick={{ fontSize: 12 }} className="fill-slate-500 dark:fill-slate-400" />
+                            <Tooltip content={<CustomTooltip />} />
+                            <Bar dataKey="changes" fill={chartColors.danger} radius={[6, 6, 0, 0]} />
                       </BarChart>
                     </ResponsiveContainer>
+                    ) : (
+                      <div className="flex h-full items-center justify-center text-slate-500 dark:text-slate-400">
+                        No compliance events in the last hour
                   </div>
+                    )}
+                </div>
                   </ChartCard>
 
                   <ChartCard title="Fee AMM Total Liquidity" description="Sum of pool reserves by token">

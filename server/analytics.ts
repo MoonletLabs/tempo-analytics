@@ -332,9 +332,14 @@ export async function getFeeAmmSummary(): Promise<FeeAmmSummary> {
 export async function getComplianceEvents(windowSeconds: number) {
   const cacheKey = `complianceEvents:${windowSeconds}`
   const cached = cacheGet<ComplianceEvent[]>(cacheKey)
-  if (cached) return cached
+  if (cached) {
+    console.log(`[compliance] Using cached data: ${cached.length} events`)
+    return cached
+  }
 
+  console.log(`[compliance] Fetching compliance events for ${windowSeconds}s window...`)
   const range = await blockRangeForWindow(windowSeconds)
+  console.log(`[compliance] Block range: ${range.fromBlock} to ${range.toBlock}`)
 
   const [policyCreated, policyAdminUpdated, whitelistUpdated, blacklistUpdated] =
     await Promise.all([
@@ -430,6 +435,7 @@ export async function getComplianceEvents(windowSeconds: number) {
 
   raw.sort((a, b) => b.blockNumber - a.blockNumber)
   const result = attachTimestamps(raw.slice(0, MAX_EVENTS))
+  console.log(`[compliance] Returning ${result.length} compliance events (raw: ${raw.length}, max: ${MAX_EVENTS})`)
   cacheSet(cacheKey, result, 5 * 60 * 1000)
   return result
 }
@@ -474,9 +480,18 @@ export async function buildDashboard(windowSeconds: number): Promise<DashboardRe
 
   const uniqueMemos = new Set(memoTransfers.map((t) => t.memo.toLowerCase())).size
   const uniqueFeePayers = new Set(fees.map((f) => f.payer.toLowerCase())).size
-  // Sponsorship data removed for speed - would require individual tx lookups
-  const sponsoredFeePayments = 0
-  const sponsoredFeePaymentRate = 0
+
+  // Calculate sponsorship analytics (this is async and may take time)
+  let sponsoredFeePayments = 0
+  let sponsoredFeePaymentRate = 0
+  try {
+    const sponsorshipData = await getFeeSponsorshipAnalytics(windowSeconds, fees)
+    sponsoredFeePayments = sponsorshipData.sponsoredCount
+    sponsoredFeePaymentRate = sponsorshipData.sponsorshipRate
+    console.log(`[dashboard] Sponsorship: ${sponsoredFeePayments} sponsored, ${sponsorshipData.selfPaidCount} self-paid (${sponsorshipData.sponsorshipRate.toFixed(1)}% rate)`)
+  } catch (err) {
+    console.warn(`[dashboard] Failed to calculate sponsorship analytics:`, err instanceof Error ? err.message : String(err))
+  }
 
   const uniqueComplianceUpdaters = new Set(compliance.map((e) => e.updater.toLowerCase())).size
   const uniquePolicyIds = new Set(compliance.map((e) => e.policyId)).size
