@@ -182,6 +182,10 @@ export async function getMemoTransfers(windowSeconds: number, memo?: Hex) {
 }
 
 export async function getFeePayments(windowSeconds: number) {
+  const cacheKey = `feePayments:${windowSeconds}`
+  const cached = cacheGet<FeePayment[]>(cacheKey)
+  if (cached) return cached
+
   const [{ tokens }, range] = await Promise.all([
     fetchTokenlist(),
     blockRangeForWindow(windowSeconds),
@@ -224,7 +228,9 @@ export async function getFeePayments(windowSeconds: number) {
   fees.sort((a, b) => b.blockNumber - a.blockNumber)
 
   // Skip individual tx lookups for speed - just return fees without sponsorship data
-  return attachTimestamps(fees.slice(0, MAX_EVENTS))
+  const result = attachTimestamps(fees.slice(0, MAX_EVENTS))
+  cacheSet(cacheKey, result, 5 * 60 * 1000)
+  return result
 }
 
 export async function getTotalTransfers(windowSeconds: number) {
@@ -324,6 +330,10 @@ export async function getFeeAmmSummary(): Promise<FeeAmmSummary> {
 }
 
 export async function getComplianceEvents(windowSeconds: number) {
+  const cacheKey = `complianceEvents:${windowSeconds}`
+  const cached = cacheGet<ComplianceEvent[]>(cacheKey)
+  if (cached) return cached
+
   const range = await blockRangeForWindow(windowSeconds)
 
   const [policyCreated, policyAdminUpdated, whitelistUpdated, blacklistUpdated] =
@@ -419,7 +429,9 @@ export async function getComplianceEvents(windowSeconds: number) {
   }
 
   raw.sort((a, b) => b.blockNumber - a.blockNumber)
-  return attachTimestamps(raw.slice(0, MAX_EVENTS))
+  const result = attachTimestamps(raw.slice(0, MAX_EVENTS))
+  cacheSet(cacheKey, result, 5 * 60 * 1000)
+  return result
 }
 
 export async function buildDashboard(windowSeconds: number): Promise<DashboardResponse> {
@@ -501,7 +513,8 @@ export async function buildDashboard(windowSeconds: number): Promise<DashboardRe
     feeAmm,
   }
 
-  cacheSet(cacheKey, out, 2 * 60 * 1000)
+  // Cache for 5 minutes (longer than warm interval of 3 minutes to ensure cache is always fresh)
+  cacheSet(cacheKey, out, 5 * 60 * 1000)
   return out
 }
 

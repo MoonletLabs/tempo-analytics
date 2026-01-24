@@ -11,8 +11,11 @@ app.disable('x-powered-by')
 
 app.use(cors())
 
-// Fixed 1-hour window for fast queries (no caching needed)
+// Fixed 1-hour window for fast queries
 const DASHBOARD_WINDOW = 3600
+
+// Cache warming interval: 3 minutes
+const CACHE_WARM_INTERVAL_MS = 3 * 60 * 1000
 
 // Light caching for API responses
 app.use('/api', (_req, res, next) => {
@@ -82,7 +85,67 @@ if (process.env.NODE_ENV === 'production') {
   })
 }
 
+// Cache warming function - pre-populates cache in background
+let isWarming = false
+const WARM_TIMEOUT_MS = 2 * 60 * 1000 // 2 minutes max
+
+async function warmCache() {
+  // Prevent overlapping warm-ups
+  if (isWarming) {
+    console.log(`[cache-warm] Skipping - previous warm-up still in progress`)
+    return
+  }
+
+  isWarming = true
+  const timeoutId = setTimeout(() => {
+    if (isWarming) {
+      console.error(`[cache-warm] Timeout after ${WARM_TIMEOUT_MS}ms - forcing reset`)
+      isWarming = false
+    }
+  }, WARM_TIMEOUT_MS)
+
+  try {
+    const start = Date.now()
+    console.log(`[cache-warm] Starting cache warm-up...`)
+
+    // Pre-populate dashboard cache (this will also warm sub-caches like memoTransfers, fees, compliance, etc.)
+    await buildDashboard(DASHBOARD_WINDOW)
+
+    // Also warm other endpoints that might be called separately
+    await Promise.allSettled([
+      getFeePayments(DASHBOARD_WINDOW),
+      getComplianceEvents(DASHBOARD_WINDOW),
+    ])
+
+    const duration = Date.now() - start
+    console.log(`[cache-warm] Cache warmed successfully in ${duration}ms`)
+  } catch (err) {
+    console.error(`[cache-warm] Error warming cache:`, err instanceof Error ? err.message : String(err))
+  } finally {
+    clearTimeout(timeoutId)
+    isWarming = false
+  }
+}
+
+// Store interval ID for potential cleanup
+let cacheWarmInterval: NodeJS.Timeout | null = null
+
+// Start cache warming immediately and then every 3 minutes
+warmCache().catch((err) => {
+  console.error(`[cache-warm] Initial warm-up failed:`, err instanceof Error ? err.message : String(err))
+})
+cacheWarmInterval = setInterval(warmCache, CACHE_WARM_INTERVAL_MS)
+
+// Graceful shutdown handler (optional, for cleanup)
+process.on('SIGTERM', () => {
+  if (cacheWarmInterval) {
+    clearInterval(cacheWarmInterval)
+    console.log(`[cache-warm] Cache warming stopped`)
+  }
+})
+
 app.listen(env.port, () => {
   // eslint-disable-next-line no-console
   console.log(`tempo-analytics server listening on http://localhost:${env.port}`)
+  console.log(`[cache-warm] Cache warming enabled (every ${CACHE_WARM_INTERVAL_MS / 1000}s)`)
 })
