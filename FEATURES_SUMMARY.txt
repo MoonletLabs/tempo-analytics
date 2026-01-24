@@ -1,0 +1,218 @@
+TEMPO ANALYTICS DASHBOARD - FEATURE SUMMARY
+===========================================
+
+OVERVIEW
+--------
+
+The Tempo Analytics Dashboard is a comprehensive real-time analytics platform for monitoring the Tempo Network (Testnet - Moderato). It provides deep insights into network activity, memo transfers, fee payments, compliance events, and Fee AMM pool health. The dashboard is designed to give users a complete picture of network operations through intuitive visualizations and detailed data exploration tools.
+
+The live dashboard is available at: https://tempo.moonlet.dev/
+
+
+CORE FEATURES
+=============
+
+1. ANALYTICS DASHBOARD TAB
+---------------------------
+
+The Analytics Dashboard is the heart of the platform, presenting a comprehensive overview of network activity through key metrics and visualizations.
+
+Key Metrics
+
+The dashboard features eight primary metric cards that provide at-a-glance insights into network health and activity. These include:
+
+• Total Transfers - Counts all token transfers within the time window
+• Memo Transfers - Tracks transfers that include memo fields using the TIP-20 transferWithMemo function
+• Unique Memos - Shows the number of distinct memo identifiers being used across the network
+• Fee Payments - Counts all payments made to the FeeManager contract
+• Unique Fee Payers - Shows how many distinct addresses are participating in fee payments
+• Sponsored Fees - Displays the percentage of fee payments where the payer is different from the transaction sender, indicating third-party fee sponsorship activity
+• Compliance Events - Tracks all TIP-403 registry events
+• Block Range - Shows the current block range being analyzed
+
+All metrics include delta indicators that show changes from the previous data load, allowing users to quickly identify trends and changes in network activity.
+
+Payments Funnel
+
+A dedicated breakdown table provides a clear view of the payment flow through the network. It shows the progression from Total Transfers to Memo Transfers, displaying the coverage percentage that indicates how much of the network activity includes memo fields. The funnel then shows the transition from Memo Transfers to Sponsored Fee Transfers, displaying the sponsorship rate that reveals how often fees are being paid by parties other than the transaction sender.
+
+Visualizations
+
+The dashboard includes over fifteen different charts and visualizations, organized into several categories:
+
+Counterparty Analysis
+• Top Counterparties (Senders) - Bar charts ranking addresses by memo transfer volume
+• Top Counterparties (Receivers) - Bar charts ranking addresses by memo transfer volume
+
+Token Analytics
+• Token Dominance - Pie chart showing the share of memoed volume by each token
+• Memo Transfer Volume By Token - Bar chart with visual token icons
+• Fees Paid By Token - Pie chart showing fee distribution across different tokens
+• Fee Demand vs Pool Reserves - Bar chart comparing fee demand to AMM liquidity with automatic alerts when liquidity is running low
+
+Memo Analytics
+• Top Memos By Count - Bar chart showing which memo identifiers are used most frequently
+• Memo Reuse Distribution - Histogram revealing memo reuse patterns (1 use, 2-5 uses, 6-20 uses, or 21+ uses)
+• Memo Concentration (Pareto) - Line chart showing the cumulative share of activity by the top N memos
+
+Fee Analytics
+• Top Fee Payers - Bar chart displaying addresses paying the most fees with Top10 concentration percentage
+• Fees Over Time - Stacked area chart showing fee payments over time, broken down by token
+• Sponsorship Split - Pie chart visualizing the proportion of sponsored versus self-paid fees
+• Top Fee Payments - Bar chart showing a sample of recent fee payment events
+
+Compliance Analytics
+• Compliance Events Over Time - Stacked bar chart showing different event types over time (PolicyCreated, PolicyAdminUpdated, WhitelistUpdated, BlacklistUpdated)
+• Top Compliance Updaters - Bar chart identifying which addresses are making the most policy changes
+• Most Changed Policies - Bar chart showing which policy IDs are being updated most frequently
+
+Activity and Liquidity
+• Activity Over Time - Multi-line chart simultaneously displaying memos, fees, and policies over time
+• Fee AMM Total Liquidity - Bar chart showing the sum of pool reserves by token
+
+
+2. DATA EXPLORER TAB
+--------------------
+
+The Data Explorer tab provides detailed, paginated tables for users who need to examine specific transactions and events in detail.
+
+Fee Paid Summary
+
+At the top of the Data Explorer, a badge display shows the total fees paid per token to the FeeManager contract, providing a quick reference for fee distribution across different tokens.
+
+Data Tables
+
+The Data Explorer includes three comprehensive tables with full pagination support, each showing 25 rows per page:
+
+Recent Memo Transfers Table
+• Displays all recent memo transfers with transaction details
+• Each row includes: transaction timestamp, token information with visual icons, transfer amount, sender and receiver addresses, memo field, and transaction hash link
+• Clickable rows navigate to Memo Explorer with memo field pre-filled
+• All transaction hashes link directly to Tempo Explorer for detailed transaction information
+• Quick access button provides immediate navigation to the Memo Explorer tab
+
+Recent Compliance Events Table
+• Provides detailed information about all TIP-403 registry activity
+• Each event displays: timestamp, event type with color-coded badges, policy ID, and transaction hash link
+• Event types tracked include PolicyCreated, PolicyAdminUpdated, WhitelistUpdated, and BlacklistUpdated
+• Complete visibility into compliance policy changes on the network
+
+Fee AMM Pools Table
+• Displays all active pools in the Fee AMM system
+• Shows relationship between user tokens and validator tokens with their respective reserves
+• Columns include: User Token, Validator Token, User Reserve, and Validator Reserve
+• Complete transparency into the liquidity structure of the fee AMM
+
+
+3. MEMO EXPLORER TAB
+--------------------
+
+The Memo Explorer provides specialized functionality for searching and analyzing specific memo identifiers across the network.
+
+Memo Search
+
+The search interface features a dedicated input field that accepts bytes32 memo values in hexadecimal format, requiring exactly 66 characters (0x prefix plus 64 hex characters). The system provides real-time validation to ensure the memo format is correct before allowing a search. When a search is initiated, the interface provides clear loading feedback and comprehensive error handling to guide users through the process.
+
+Search Results
+
+Once results are found, they are displayed in a paginated table format showing 25 results per page. Each entry includes:
+• Transaction timestamp
+• Token information with visual icons
+• Transfer amount
+• Sender and receiver addresses
+• Memo field
+• Direct link to the transaction hash on Tempo Explorer for detailed inspection
+
+The results count is prominently displayed, giving users immediate feedback on how many transactions match their search criteria, making it easy to track down all transfers associated with a specific memo identifier.
+
+
+BACKEND API ENDPOINTS
+======================
+
+The dashboard provides several API endpoints for accessing network data:
+
+• /api/dashboard - Returns comprehensive dashboard data for the last hour, including complete token information, all memo transfers, fee payments, compliance events, aggregated statistics, and fee AMM data
+
+• /api/memo/:memo - Enables searching for all transfers associated with a specific memo identifier
+
+• /api/fees - Returns all fee payment events within the time window
+
+• /api/compliance - Provides access to all TIP-403 compliance events
+
+• /api/health - Serves as a monitoring and status check tool, returning the chain ID, RPC URL, and latest block number
+
+
+DATA SOURCES
+============
+
+On-Chain Data
+
+The dashboard aggregates data from multiple on-chain sources:
+
+• TIP-20 Token Transfers - Standard Transfer events
+• TIP-20 Memo Transfers - TransferWithMemo events
+• Fee Manager Activity - All transfers to the FeeManager contract address
+• TIP-403 Registry Events - Compliance data including:
+  - PolicyCreated events when new policies are established
+  - PolicyAdminUpdated events when policy administrators change
+  - WhitelistUpdated events when addresses are added or removed from whitelists
+  - BlacklistUpdated events when addresses are added or removed from blacklists
+• Fee AMM Data - Real-time information about pool reserves and liquidity for all active pools
+
+External Data
+
+• Token Lists - Fetched from a configurable source
+• Tempo Explorer Links - Direct links to explore.tempo.xyz for detailed transaction information and network context
+
+
+METRICS AND ANALYTICS
+======================
+
+The dashboard tracks comprehensive metrics across multiple categories to provide complete network insights.
+
+Transfer Metrics
+
+The dashboard tracks comprehensive transfer metrics including:
+• Total transfer count
+• Memo transfer count and coverage percentage
+• Memo transfer volume broken down by token
+• Unique memo count
+• Detailed counterparty analysis showing the top senders and receivers by volume
+
+Fee Metrics
+
+Fee-related metrics include:
+• Total fee payment count
+• Fee volume distributed by token
+• Unique fee payer count
+• Sponsorship rate calculations identifying when the payer differs from the transaction sender
+• Fee demand compared to AMM liquidity
+• Rankings of top fee payers
+
+Compliance Metrics
+
+Compliance tracking includes:
+• Total compliance event count
+• Unique compliance updater addresses
+• Unique policy IDs being managed
+• Unique addresses affected by policy changes
+• Policy change frequency analysis
+
+AMM Metrics
+
+Fee AMM metrics include:
+• Total pool count and individual pool reserves
+• Total liquidity aggregated by token
+• Automated liquidity health alerts that warn when demand exceeds available reserves
+
+
+TIME WINDOW
+===========
+
+The dashboard uses a fixed 1-hour time window for all analytics, providing consistent and comparable data across different views. This ensures that all metrics and visualizations are based on the same time period, making it easy to understand relationships between different network activities.
+
+
+SUMMARY
+=======
+
+All features documented in this summary are implemented on the main branch and are production-ready and actively maintained. The dashboard provides Tempo Network users with powerful tools for understanding and monitoring network activity through comprehensive analytics, detailed data exploration, and specialized memo search capabilities.
