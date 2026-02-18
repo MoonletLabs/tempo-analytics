@@ -178,7 +178,7 @@ export async function getMemoTransfers(windowSeconds: number, memo?: Hex) {
   }
 
   transfers.sort((a, b) => b.blockNumber - a.blockNumber)
-  return attachTimestamps(transfers.slice(0, MAX_EVENTS))
+  return await attachTimestamps(transfers.slice(0, MAX_EVENTS))
 }
 
 export async function getFeePayments(windowSeconds: number) {
@@ -228,7 +228,7 @@ export async function getFeePayments(windowSeconds: number) {
   fees.sort((a, b) => b.blockNumber - a.blockNumber)
 
   // Skip individual tx lookups for speed - just return fees without sponsorship data
-  const result = attachTimestamps(fees.slice(0, MAX_EVENTS))
+  const result = await attachTimestamps(fees.slice(0, MAX_EVENTS))
   cacheSet(cacheKey, result, 5 * 60 * 1000)
   return result
 }
@@ -434,7 +434,7 @@ export async function getComplianceEvents(windowSeconds: number) {
   }
 
   raw.sort((a, b) => b.blockNumber - a.blockNumber)
-  const result = attachTimestamps(raw.slice(0, MAX_EVENTS))
+  const result = await attachTimestamps(raw.slice(0, MAX_EVENTS))
   console.log(`[compliance] Returning ${result.length} compliance events (raw: ${raw.length}, max: ${MAX_EVENTS})`)
   cacheSet(cacheKey, result, 5 * 60 * 1000)
   return result
@@ -481,17 +481,10 @@ export async function buildDashboard(windowSeconds: number): Promise<DashboardRe
   const uniqueMemos = new Set(memoTransfers.map((t) => t.memo.toLowerCase())).size
   const uniqueFeePayers = new Set(fees.map((f) => f.payer.toLowerCase())).size
 
-  // Calculate sponsorship analytics (this is async and may take time)
-  let sponsoredFeePayments = 0
-  let sponsoredFeePaymentRate = 0
-  try {
-    const sponsorshipData = await getFeeSponsorshipAnalytics(windowSeconds, fees)
-    sponsoredFeePayments = sponsorshipData.sponsoredCount
-    sponsoredFeePaymentRate = sponsorshipData.sponsorshipRate
-    console.log(`[dashboard] Sponsorship: ${sponsoredFeePayments} sponsored, ${sponsorshipData.selfPaidCount} self-paid (${sponsorshipData.sponsorshipRate.toFixed(1)}% rate)`)
-  } catch (err) {
-    console.warn(`[dashboard] Failed to calculate sponsorship analytics:`, err instanceof Error ? err.message : String(err))
-  }
+  // Calculate sponsorship analytics - currently disabled for performance
+  // TODO: Implement getFeeSponsorshipAnalytics if sponsorship data is available
+  const sponsoredFeePayments = 0
+  const sponsoredFeePaymentRate = 0
 
   const uniqueComplianceUpdaters = new Set(compliance.map((e) => e.updater.toLowerCase())).size
   const uniquePolicyIds = new Set(compliance.map((e) => e.policyId)).size
