@@ -6,7 +6,7 @@ services:
     environment:
       PORT: "8790"
       NODE_ENV: "production"
-      TEMPO_RPC_URL: "https://public.moonlet.cloud/tempo"
+      TEMPO_RPC_URL: "https://rpc.moderato.tempo.xyz"
       TEMPO_TOKENLIST_URL: "https://tokenlist.tempo.xyz/list/42431"
       TEMPO_MAX_SCAN_BLOCKS: "200000"
     restart: unless-stopped

@@ -2,7 +2,7 @@ import type { Address } from 'viem'
 
 export const env = {
   port: Number.parseInt(process.env.PORT ?? '8787', 10),
-  rpcUrl: process.env.TEMPO_RPC_URL ?? 'https://public.moonlet.cloud/tempo',
+  rpcUrl: process.env.TEMPO_RPC_URL ?? 'https://rpc.moderato.tempo.xyz',
   tokenlistUrl:
     process.env.TEMPO_TOKENLIST_URL ?? 'https://tokenlist.tempo.xyz/list/42431',
   // Cap scanned block window by default (increase on your own RPC if needed).
